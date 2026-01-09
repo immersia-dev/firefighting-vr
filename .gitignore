@@ -1,0 +1,14 @@
+# Build (caso exista futuramente)
+dist/
+
+# Node (futuro)
+node_modules/
+
+# Editor / sistema
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs temporários
+*.log
+*.tmp

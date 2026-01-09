@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Immersia VR Scene - Vet Anatomy</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script src="/scripts/lib/aframe-v1.7.1.min.js"></script>
+    <script src="/scripts/lib/aframe-extras.min.js"></script>
+
+    <script src="/scripts/components/text-font-setup.js"></script>
+    <script src="/scripts/components/burning.js"></script>
+    <!-- <script src="/scripts/components/interaction-mode-manager.js"></script>
+    <script src="/scripts/components/anatomy-layer-manager.js"></script> -->
+
+    <!-- <script src="/scripts/components/hand-tracking/hand-color-manager.js"></script>
+    <script src="/scripts/components/hand-tracking/hand-movable.js"></script>
+    <script src="/scripts/components/hand-tracking/hand-rotatable.js"></script>
+    <script src="/scripts/components/hand-tracking/hand-scalable.js"></script> -->
+
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+      }
+
+      #loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          135deg,
+          #1e0a3c 0%,
+          #4a1d6e 50%,
+          #2d0f4d 100%
+        );
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease-out;
+      }
+
+      #loading-screen.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #loading-logo {
+        width: 280px;
+        height: auto;
+        margin-bottom: 40px;
+        animation: pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.8;
+          transform: scale(0.98);
+        }
+      }
+
+      .loading-spinner {
+        width: 60px;
+        height: 60px;
+        border: 4px solid rgba(255, 255, 255, 0.2);
+        border-top-color: #a855f7;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .loading-text {
+        margin-top: 20px;
+        color: #ffffff;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 16px;
+        letter-spacing: 1px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+      <img
+        id="loading-logo"
+        src="/assets/Immersia_logo-removebg.png"
+        alt="Immersia Logo"
+      />
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Carregando experiência VR...</div>
+    </div>
+
+    <script>
+      // Hide loading screen when scene is loaded
+      document.addEventListener("DOMContentLoaded", function () {
+        const scene = document.querySelector("a-scene");
+        const loadingScreen = document.getElementById("loading-screen");
+
+        if (scene && loadingScreen) {
+          scene.addEventListener("loaded", function () {
+            setTimeout(function () {
+              loadingScreen.classList.add("fade-out");
+              setTimeout(function () {
+                loadingScreen.style.display = "none";
+              }, 500);
+            }, 500);
+          });
+        }
+      });
+    </script>
+    <a-scene renderer="antialias: true" background="color: #376c95">
+      <a-assets>
+        <a-asset-item
+          id="font-msdf"
+          src="/assets/fonts/Exo2-Regular-msdf.json"
+        ></a-asset-item>
+        <img
+          id="font-image"
+          src="/assets/fonts/Exo2-Regular.png"
+          crossorigin="anonymous"
+        />
+        <img id="sky" src="/assets/sky.jpg" />
+        <a-asset-item id="model-hangar" src="/assets/hangar.glb"></a-asset-item>
+        <a-asset-item
+          id="model-wooden-pallet"
+          src="/assets/wooden-pallet.glb"
+        ></a-asset-item>
+      </a-assets>
+
+      <a-entity id="rig" position="0 1.6 -7" movement-controls="speed: 0.15">
+        <a-entity id="head" camera look-controls></a-entity>
+
+        <!-- <a-entity
+          id="right-hand-tracking"
+          hand-tracking-grab-controls="hand: right; modelColor: #ffffff; modelOpacity: 0.9; modelStyle: mesh; hoverColor: #00ff00; hoverEnabled: true; color: #ffffff; enabled: false"
+          raycaster="enabled: false; objects: .interactable; far: 10; showLine: false"
+          hand-color-manager
+        ></a-entity> -->
+
+        <!-- <a-entity
+          id="left-hand-tracking"
+          hand-tracking-grab-controls="hand: left; modelColor: #ffffff; modelOpacity: 0.9; modelStyle: mesh; hoverColor: #00ff00; hoverEnabled: true; color: #ffffff; enabled: false"
+          raycaster="enabled: false; objects: .interactable; far: 10; showLine: false"
+          hand-color-manager
+        ></a-entity> -->
+
+        <a-entity
+          id="right-hand-controller"
+          laser-controls="hand: right"
+          raycaster="enabled: true; objects: .interactable; far: 10; showLine: true"
+          line="color: #ffffff; opacity: 0.95"
+        ></a-entity>
+
+        <a-entity
+          id="left-hand-controller"
+          laser-controls="hand: left"
+          raycaster="enabled: true; objects: .interactable; far: 10; showLine: true"
+          line="color: #ffffff; opacity: 0.4"
+        ></a-entity>
+      </a-entity>
+
+      <a-entity id="hangar" gltf-model="#model-hangar"></a-entity>
+      <!-- Burning Box -->
+      <a-entity
+        id="burning-wooden-pallet"
+        position="0 0.5 -15"
+        burning="
+          fireRate: 100;
+          smokeRate: 2;
+          ceilingSmokeRate: 35;
+          fireTexture: /assets/fire.png;
+          smokeTexture: /assets/smoke.png;
+          radius: 0.5;
+          maxLife: 1.8;
+          maxSize: 4.5;
+          smokeMaxLife: 3.5;
+          smokeMaxSize: 5.5;
+          ceilingHeight: 5.5;
+          ceilingWidth: 18;
+          ceilingDepth: 15;
+          enableCeiling: true
+        "
+      >
+        <a-entity
+          id="wooden-pallet"
+          gltf-model="#model-wooden-pallet"
+          material="color: #1a0f08; roughness: 0.9; metalness: 0.1; emissive: #0a0503; emissiveIntensity: 0.2"
+        ></a-entity>
+      </a-entity>
+
+      <!-- Ambient light provides base illumination for the entire scene -->
+      <a-entity
+        light="type: ambient; intensity: 0.5; color: #BBCCFF"
+        id="ambient-light"
+      ></a-entity>
+
+      <!-- Main directional light simulating sunlight from skylights -->
+      <a-entity
+        light="type: directional; intensity: 0.8; castShadow: true; shadowCameraVisible: false"
+        position="5 10 2"
+        rotation="-45 0 0"
+        id="sun-light"
+      ></a-entity>
+
+      <!-- Point light for hangar interior depth -->
+      <a-entity
+        light="type: point; intensity: 0.6; distance: 30; decay: 2; color: #FFFFFF"
+        position="-1.7 4.8 -26.5"
+        id="point-light-1"
+      ></a-entity>
+
+      <!-- Secondary fill light to reduce harsh shadows -->
+      <a-entity
+        light="type: hemisphere; intensity: 0.4; groundColor: #808080"
+        id="hemisphere-light"
+      ></a-entity>
+
+      <a-sky src="#sky"></a-sky>
+    </a-scene>
+  </body>
+</html>

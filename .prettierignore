@@ -1,0 +1,13 @@
+assets/
+scripts/lib/
+scripts/components/
+*.gltf
+*.glb
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.wav
+*.mp3
+dist/
+node_modules/
