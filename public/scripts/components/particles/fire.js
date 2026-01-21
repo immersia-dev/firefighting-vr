@@ -53,13 +53,13 @@ function getLinearSpline(lerp) {
     return _lerp(
       (t - points[p1][0]) / (points[p2][0] - points[p1][0]),
       points[p1][1],
-      points[p2][1]
+      points[p2][1],
     );
   }
   return { addPoint, getValueAt };
 }
 
-AFRAME.registerComponent("burning", {
+AFRAME.registerComponent("fire", {
   schema: {
     fireRate: { type: "number", default: 75.0 },
     smokeRate: { type: "number", default: 35.0 },
@@ -80,8 +80,11 @@ AFRAME.registerComponent("burning", {
   init() {
     this.clock = new THREE.Clock();
     this.systems = [];
+    this.fireIntensity = 1.0; // 1.0 = full fire, 0.0 = extinguished
+    this.suppressionRate = 0.12; // Slightly faster suppression to keep pace
+    this.recoveryRate = 0.02; // Slow recovery if foam stops (optional)
 
-    // Fire system
+    // Fire system with dynamic intensity
     this.fireSystem = this._createParticleSystem({
       texture: this.data.fireTexture,
       rate: this.data.fireRate,
@@ -95,11 +98,18 @@ AFRAME.registerComponent("burning", {
         [0.6, new THREE.Color(0xff8030)],
         [1.0, new THREE.Color(0xff3010)],
       ],
+      suppressedColors: [
+        [0.0, new THREE.Color(0xaaaaaa)],
+        [0.3, new THREE.Color(0x888888)],
+        [0.6, new THREE.Color(0x666666)],
+        [1.0, new THREE.Color(0x444444)],
+      ],
       blending: THREE.AdditiveBlending,
+      isFire: true,
     });
     this.systems.push(this.fireSystem);
 
-    // Rising smoke
+    // Rising smoke (lightens when being extinguished)
     this.smokeSystem = this._createParticleSystem({
       texture: this.data.smokeTexture,
       rate: this.data.smokeRate,
@@ -112,6 +122,11 @@ AFRAME.registerComponent("burning", {
         [0.5, new THREE.Color(0x333333)],
         [1.0, new THREE.Color(0x222222)],
       ],
+      suppressedColors: [
+        [0.0, new THREE.Color(0x999999)],
+        [0.5, new THREE.Color(0x888888)],
+        [1.0, new THREE.Color(0x777777)],
+      ],
       blending: THREE.NormalBlending,
       alphaPoints: [
         [0.0, 0.0],
@@ -119,6 +134,7 @@ AFRAME.registerComponent("burning", {
         [0.8, 0.25],
         [1.0, 0.0],
       ],
+      isSmoke: true,
     });
     this.systems.push(this.smokeSystem);
 
@@ -136,6 +152,11 @@ AFRAME.registerComponent("burning", {
           [0.5, new THREE.Color(0x2a2a2a)],
           [1.0, new THREE.Color(0x1a1a1a)],
         ],
+        suppressedColors: [
+          [0.0, new THREE.Color(0x888888)],
+          [0.5, new THREE.Color(0x777777)],
+          [1.0, new THREE.Color(0x666666)],
+        ],
         blending: THREE.NormalBlending,
         alphaPoints: [
           [0.0, 0.0],
@@ -144,6 +165,7 @@ AFRAME.registerComponent("burning", {
           [1.0, 0.0],
         ],
         isCeiling: true,
+        isSmoke: true,
       });
       this.systems.push(this.ceilingSystem);
     }
@@ -165,9 +187,12 @@ AFRAME.registerComponent("burning", {
       maxSize,
       velocity,
       colors,
+      suppressedColors,
       blending,
       alphaPoints,
       isCeiling = false,
+      isFire = false,
+      isSmoke = false,
     } = config;
 
     const camera = this.el.sceneEl.camera;
@@ -219,6 +244,18 @@ AFRAME.registerComponent("burning", {
     });
     colors.forEach(([t, c]) => colorSpline.addPoint(t, c));
 
+    // Suppressed color spline (gray when being extinguished)
+    let suppressedColorSpline = null;
+    if (suppressedColors) {
+      suppressedColorSpline = getLinearSpline((t, a, b) => {
+        const c = a.clone();
+        return c.lerp(b, t);
+      });
+      suppressedColors.forEach(([t, c]) =>
+        suppressedColorSpline.addPoint(t, c),
+      );
+    }
+
     const sizeSpline = getLinearSpline((t, a, b) => a + t * (b - a));
     sizeSpline.addPoint(0.0, 0.0);
     sizeSpline.addPoint(0.5, 1.0);
@@ -237,26 +274,32 @@ AFRAME.registerComponent("burning", {
       velocity,
       alphaSpline,
       colorSpline,
+      suppressedColorSpline,
       sizeSpline,
       accumulator,
       camera,
       isCeiling,
+      isFire,
+      isSmoke,
     };
   },
 
   tick(time, delta) {
     const dt = Math.min(delta / 1000, 0.05);
 
-    // Update each system
+    // Check for foam particles nearby and suppress fire
+    this._checkFoamSuppression(dt);
+
+    // Update each system with current fire intensity
     this.systems.forEach((sys) => {
       this._addParticles(sys, dt);
       this._updateParticles(sys, dt);
       this._updateGeometry(sys);
     });
 
-    // Light flicker
+    // Light flicker (scaled by intensity)
     const t = time / 1000;
-    const base = 2.5;
+    const base = 2.5 * this.fireIntensity;
     const flicker =
       0.85 +
       0.3 * Math.sin(t * 11.0 + this._flickerPhase) +
@@ -264,10 +307,62 @@ AFRAME.registerComponent("burning", {
     this.fireLight.intensity = base * flicker;
   },
 
+  _checkFoamSuppression(dt) {
+    // Find foam nozzle in scene
+    const foamNozzle = document.querySelector("#foam-nozzle");
+    if (!foamNozzle || !foamNozzle.components.foam) return;
+
+    const foamComp = foamNozzle.components.foam;
+    if (!foamComp.emitting) return;
+
+    const firePos = this.el.object3D.getWorldPosition(new THREE.Vector3());
+
+    // Check if any foam particles are near the fire
+    const foamParticles = foamComp.particles;
+    let foamHitCount = 0;
+    const hitRadius = 2.5; // Detection radius
+
+    for (let i = 0; i < foamParticles.length; i++) {
+      const fp = foamParticles[i];
+      if (!fp.active) continue;
+
+      const dist = fp.pos.distanceTo(firePos);
+      if (dist < hitRadius) {
+        foamHitCount++;
+      }
+    }
+
+    // Suppress fire based on foam contact
+    if (foamHitCount > 5) {
+      this.fireIntensity = Math.max(
+        0,
+        this.fireIntensity - this.suppressionRate * dt,
+      );
+    } else {
+      // Optional: slight recovery if no foam (commented out for now)
+      // this.fireIntensity = Math.min(1.0, this.fireIntensity + this.recoveryRate * dt);
+    }
+  },
+
   _addParticles(sys, timeElapsed) {
+    // Scale particle generation by fire intensity
+    let rateFactor = 1.0;
+    if (sys.isFire) {
+      rateFactor = this.fireIntensity;
+    } else if (sys.isSmoke) {
+      // Smoke fades out as fireIntensity drops; stop entirely when very low
+      rateFactor = Math.max(0, this.fireIntensity - 0.15);
+    }
+
+    const effectiveRate = sys.rate * rateFactor;
+    if (effectiveRate <= 0) {
+      sys.accumulator = 0;
+      return;
+    }
+
     sys.accumulator += timeElapsed;
-    const n = Math.floor(sys.accumulator * sys.rate);
-    sys.accumulator -= n / sys.rate;
+    const n = Math.floor(sys.accumulator * effectiveRate);
+    sys.accumulator -= n / effectiveRate;
 
     const emitterPos = this.el.object3D.getWorldPosition(new THREE.Vector3());
 
@@ -280,18 +375,18 @@ AFRAME.registerComponent("burning", {
         position = new THREE.Vector3(
           emitterPos.x + (Math.random() - 0.5) * this.data.ceilingWidth,
           this.data.ceilingHeight - 0.1,
-          emitterPos.z + (Math.random() - 0.5) * this.data.ceilingDepth
+          emitterPos.z + (Math.random() - 0.5) * this.data.ceilingDepth,
         );
         vel = new THREE.Vector3(
           (Math.random() - 0.5) * 0.8,
           -0.05,
-          (Math.random() - 0.5) * 0.8
+          (Math.random() - 0.5) * 0.8,
         );
       } else {
         position = new THREE.Vector3(
           (Math.random() * 2 - 1) * sys.radius,
           (Math.random() * 2 - 1) * sys.radius * 0.3,
-          (Math.random() * 2 - 1) * sys.radius
+          (Math.random() * 2 - 1) * sys.radius,
         ).add(emitterPos);
         vel = sys.velocity
           .clone()
@@ -299,8 +394,8 @@ AFRAME.registerComponent("burning", {
             new THREE.Vector3(
               (Math.random() - 0.5) * 0.5,
               Math.random() * 0.5,
-              (Math.random() - 0.5) * 0.5
-            )
+              (Math.random() - 0.5) * 0.5,
+            ),
           );
       }
 
@@ -331,7 +426,16 @@ AFRAME.registerComponent("burning", {
       p.rotation += p.rotationRate;
       p.alpha = sys.alphaSpline.getValueAt(t);
       p.currentSize = p.size * sys.sizeSpline.getValueAt(t);
-      p.colour.copy(sys.colorSpline.getValueAt(t));
+
+      // Lerp between normal and suppressed colors based on fire intensity (applies to fire and smoke)
+      if (sys.suppressedColorSpline) {
+        const normalColor = sys.colorSpline.getValueAt(t);
+        const suppressedColor = sys.suppressedColorSpline.getValueAt(t);
+        const factor = 1.0 - this.fireIntensity; // more suppression => lighter/gray
+        p.colour.copy(normalColor).lerp(suppressedColor, factor);
+      } else {
+        p.colour.copy(sys.colorSpline.getValueAt(t));
+      }
 
       p.position.add(p.velocity.clone().multiplyScalar(timeElapsed));
 
@@ -342,7 +446,7 @@ AFRAME.registerComponent("burning", {
         p.velocity.z += (Math.random() - 0.5) * 0.25 * timeElapsed;
 
         const emitterPos = this.el.object3D.getWorldPosition(
-          new THREE.Vector3()
+          new THREE.Vector3(),
         );
         const halfWidth = this.data.ceilingWidth * 0.5;
         const halfDepth = this.data.ceilingDepth * 0.5;
@@ -398,19 +502,19 @@ AFRAME.registerComponent("burning", {
 
     sys.geometry.setAttribute(
       "position",
-      new THREE.Float32BufferAttribute(positions, 3)
+      new THREE.Float32BufferAttribute(positions, 3),
     );
     sys.geometry.setAttribute(
       "size",
-      new THREE.Float32BufferAttribute(sizes, 1)
+      new THREE.Float32BufferAttribute(sizes, 1),
     );
     sys.geometry.setAttribute(
       "aColor",
-      new THREE.Float32BufferAttribute(colours, 4)
+      new THREE.Float32BufferAttribute(colours, 4),
     );
     sys.geometry.setAttribute(
       "angle",
-      new THREE.Float32BufferAttribute(angles, 1)
+      new THREE.Float32BufferAttribute(angles, 1),
     );
 
     sys.geometry.attributes.position.needsUpdate = true;

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
@@ -9,7 +9,8 @@
     <script src="/scripts/lib/aframe-extras.min.js"></script>
 
     <script src="/scripts/components/text-font-setup.js"></script>
-    <script src="/scripts/components/burning.js"></script>
+    <script src="/scripts/components/particles/fire.js"></script>
+    <script src="/scripts/components/particles/foam.js"></script>
     <!-- <script src="/scripts/components/interaction-mode-manager.js"></script>
     <script src="/scripts/components/anatomy-layer-manager.js"></script> -->
 
@@ -86,7 +87,10 @@
       .loading-text {
         margin-top: 20px;
         color: #ffffff;
-        font-family: system-ui, -apple-system, sans-serif;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
         font-size: 16px;
         letter-spacing: 1px;
       }
@@ -135,6 +139,7 @@
           crossorigin="anonymous"
         />
         <img id="sky" src="/assets/sky.jpg" />
+        <img id="foam-texture" src="/assets/foam.png" crossorigin="anonymous" />
         <a-asset-item id="model-hangar" src="/assets/hangar.glb"></a-asset-item>
         <a-asset-item
           id="model-wooden-pallet"
@@ -142,8 +147,38 @@
         ></a-asset-item>
       </a-assets>
 
-      <a-entity id="rig" position="0 1.6 -7" movement-controls="speed: 0.15">
-        <a-entity id="head" camera look-controls></a-entity>
+      <script>
+        // Keep rig/camera following the animated nozzle for testing
+        AFRAME.registerComponent("follow-nozzle", {
+          schema: {
+            target: { type: "selector" },
+            offset: { type: "vec3", default: { x: 0, y: 0.15, z: 0.6 } },
+          },
+          init() {
+            this.tmpPos = new THREE.Vector3();
+            this.tmpQuat = new THREE.Quaternion();
+            this.tmpOff = new THREE.Vector3();
+          },
+          tick() {
+            const t = this.data.target;
+            if (!t) return;
+            t.object3D.getWorldPosition(this.tmpPos);
+            t.object3D.getWorldQuaternion(this.tmpQuat);
+            this.tmpOff.copy(this.data.offset).applyQuaternion(this.tmpQuat);
+            this.tmpPos.add(this.tmpOff);
+            this.el.object3D.position.copy(this.tmpPos);
+            this.el.object3D.quaternion.copy(this.tmpQuat);
+          },
+        });
+      </script>
+
+      <a-entity
+        id="rig"
+        position="0 1.6 -7"
+        movement-controls="speed: 0.15"
+        follow-nozzle="target: #foam-nozzle; offset: 0.35 0.05 0.5"
+      >
+        <a-entity id="camera" camera look-controls></a-entity>
 
         <!-- <a-entity
           id="right-hand-tracking"
@@ -179,7 +214,7 @@
       <a-entity
         id="burning-wooden-pallet"
         position="0 0.5 -15"
-        burning="
+        fire="
           fireRate: 100;
           smokeRate: 2;
           ceilingSmokeRate: 35;
@@ -200,7 +235,79 @@
           id="wooden-pallet"
           gltf-model="#model-wooden-pallet"
           material="color: #1a0f08; roughness: 0.9; metalness: 0.1; emissive: #0a0503; emissiveIntensity: 0.2"
+          burn-effect
         ></a-entity>
+      </a-entity>
+
+      <script>
+        // Component to darken object as it burns (accumulates over time, does not reverse)
+        AFRAME.registerComponent("burn-effect", {
+          schema: {
+            burnRate: { type: "number", default: 0.08 }, // burn per second while fire is active
+            minIntensity: { type: "number", default: 0.2 }, // only burn when fire is meaningfully on
+          },
+          init() {
+            this.initialColor = new THREE.Color(0x1a0f08);
+            this.burnedColor = new THREE.Color(0x000000);
+            this.initialEmissive = new THREE.Color(0x0a0503);
+            this.burnedEmissive = new THREE.Color(0x000000);
+            this.burnAmount = 0; // accumulative soot/char
+          },
+          tick(time, timeDelta) {
+            const fire = this.el.parentEl.components.fire;
+            if (!fire) return;
+
+            // Accumulate burn over time while fire is above threshold; never brighten back
+            if (fire.fireIntensity > this.data.minIntensity) {
+              this.burnAmount = Math.min(
+                1,
+                this.burnAmount + (timeDelta / 1000) * this.data.burnRate,
+              );
+            }
+
+            // Update material color progressively
+            this.el.object3D.traverse((node) => {
+              if (node.material) {
+                const mat = node.material;
+                if (!mat.userData.originalColor) {
+                  mat.userData.originalColor = mat.color
+                    ? mat.color.clone()
+                    : this.initialColor.clone();
+                  mat.userData.originalEmissive = mat.emissive
+                    ? mat.emissive.clone()
+                    : this.initialEmissive.clone();
+                }
+
+                if (mat.color) {
+                  mat.color
+                    .copy(mat.userData.originalColor)
+                    .lerp(this.burnedColor, this.burnAmount);
+                }
+                if (mat.emissive) {
+                  mat.emissive
+                    .copy(mat.userData.originalEmissive)
+                    .lerp(this.burnedEmissive, this.burnAmount);
+                }
+              }
+            });
+          },
+        });
+      </script>
+
+      <!-- Debug foam nozzle to validate component; press "E" to toggle -->
+      <a-entity
+        id="foam-nozzle"
+        position="0 1.5 -10"
+        rotation="8 0 0"
+        foam="autoStart: false; rate: 280; jetLength: 4; jetRadius: 0.24; speed: 8; spread: 0.22; life: 0.85; sizeMin: 0.10; sizeMax: 0.22; gravity: -4.5; drag: 2.5; foamTexture: /assets/foam.png"
+      >
+        <a-cylinder
+          radius="0.04"
+          height="0.35"
+          color="#bbbbbb"
+          rotation="90 0 0"
+        ></a-cylinder>
+        <a-sphere radius="0.05" color="#e0e0e0" position="0 0.2 0"></a-sphere>
       </a-entity>
 
       <!-- Ambient light provides base illumination for the entire scene -->
@@ -232,5 +339,20 @@
 
       <a-sky src="#sky"></a-sky>
     </a-scene>
+
+    <script>
+      // Toggle foam test with "E" until proper extinguisher handling is wired
+      document.addEventListener("keydown", (e) => {
+        if (e.key.toLowerCase() !== "e") return;
+        const nozzle = document.querySelector("#foam-nozzle");
+        if (!nozzle || !nozzle.components.foam) return;
+        const comp = nozzle.components.foam;
+        if (comp.emitting) {
+          comp.stop();
+        } else {
+          comp.start();
+        }
+      });
+    </script>
   </body>
 </html>
