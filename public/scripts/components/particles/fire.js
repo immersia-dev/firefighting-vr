@@ -64,8 +64,8 @@ AFRAME.registerComponent("fire", {
     fireRate: { type: "number", default: 75.0 },
     smokeRate: { type: "number", default: 35.0 },
     ceilingSmokeRate: { type: "number", default: 25.0 },
-    fireTexture: { type: "string", default: "/assets/fire.png" },
-    smokeTexture: { type: "string", default: "/assets/smoke.png" },
+    fireTexture: { type: "string", default: "/assets/textures/fire.png" },
+    smokeTexture: { type: "string", default: "/assets/textures/smoke.png" },
     radius: { type: "number", default: 0.4 },
     maxLife: { type: "number", default: 1.8 },
     maxSize: { type: "number", default: 4.0 },
@@ -78,6 +78,9 @@ AFRAME.registerComponent("fire", {
   },
 
   init() {
+    if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_PARTICLES) {
+      window.debugLog('Fire', 'Initializing fire system', this.data);
+    }
     this.clock = new THREE.Clock();
     this.systems = [];
     this.fireIntensity = 1.0; // 1.0 = full fire, 0.0 = extinguished
@@ -216,12 +219,27 @@ AFRAME.registerComponent("fire", {
       vertexColors: true,
     });
 
-    let particles = [];
+    // Preallocate geometry buffers to avoid per-frame reallocations
+    // Capacity ~= rate * maxLife * 1.5 (safe headroom)
+    const capacity = Math.max(64, Math.ceil(rate * maxLife * 1.5));
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
-    geometry.setAttribute("size", new THREE.Float32BufferAttribute([], 1));
-    geometry.setAttribute("aColor", new THREE.Float32BufferAttribute([], 4));
-    geometry.setAttribute("angle", new THREE.Float32BufferAttribute([], 1));
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(capacity * 3), 3),
+    );
+    geometry.setAttribute(
+      "size",
+      new THREE.BufferAttribute(new Float32Array(capacity), 1),
+    );
+    geometry.setAttribute(
+      "aColor",
+      new THREE.BufferAttribute(new Float32Array(capacity * 4), 4),
+    );
+    geometry.setAttribute(
+      "angle",
+      new THREE.BufferAttribute(new Float32Array(capacity), 1),
+    );
+    geometry.setDrawRange(0, 0);
 
     const points = new THREE.Points(geometry, material);
     points.frustumCulled = false;
@@ -265,7 +283,7 @@ AFRAME.registerComponent("fire", {
 
     return {
       points,
-      particles,
+      particles: [],
       geometry,
       rate,
       radius,
@@ -281,6 +299,8 @@ AFRAME.registerComponent("fire", {
       isCeiling,
       isFire,
       isSmoke,
+      capacity,
+      sortSkip: 0,
     };
   },
 
@@ -334,10 +354,14 @@ AFRAME.registerComponent("fire", {
 
     // Suppress fire based on foam contact
     if (foamHitCount > 5) {
+      const prevIntensity = this.fireIntensity;
       this.fireIntensity = Math.max(
         0,
         this.fireIntensity - this.suppressionRate * dt,
       );
+      if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_PARTICLES && prevIntensity > 0.1 && this.fireIntensity <= 0.1) {
+        window.debugLog('Fire', 'Fire nearly extinguished!', this.fireIntensity.toFixed(2));
+      }
     } else {
       // Optional: slight recovery if no foam (commented out for now)
       // this.fireIntensity = Math.min(1.0, this.fireIntensity + this.recoveryRate * dt);
@@ -367,6 +391,7 @@ AFRAME.registerComponent("fire", {
     const emitterPos = this.el.object3D.getWorldPosition(new THREE.Vector3());
 
     for (let i = 0; i < n; i++) {
+      if (sys.particles.length >= sys.capacity) break; // avoid growth beyond buffers
       const life = (Math.random() * 0.75 + 0.25) * sys.maxLife;
 
       let position, vel;
@@ -479,51 +504,45 @@ AFRAME.registerComponent("fire", {
       }
     }
 
-    // Sort by distance for proper alpha blending
-    sys.particles.sort((a, b) => {
-      const d1 = sys.camera.position.distanceTo(a.position);
-      const d2 = sys.camera.position.distanceTo(b.position);
-      return d2 - d1;
-    });
+    // Sort by distance for proper alpha blending —
+    // skip most frames to reduce CPU cost
+    if (sys.sortSkip-- <= 0) {
+      sys.particles.sort((a, b) => {
+        const d1 = sys.camera.position.distanceTo(a.position);
+        const d2 = sys.camera.position.distanceTo(b.position);
+        return d2 - d1;
+      });
+      sys.sortSkip = 5; // sort every ~6th frame
+    }
   },
 
   _updateGeometry(sys) {
-    const positions = [];
-    const sizes = [];
-    const colours = [];
-    const angles = [];
+    const posArr = sys.geometry.attributes.position.array;
+    const sizeArr = sys.geometry.attributes.size.array;
+    const colArr = sys.geometry.attributes.aColor.array;
+    const angArr = sys.geometry.attributes.angle.array;
 
-    for (let p of sys.particles) {
-      positions.push(p.position.x, p.position.y, p.position.z);
-      colours.push(p.colour.r, p.colour.g, p.colour.b, p.alpha);
-      sizes.push(p.currentSize);
-      angles.push(p.rotation);
+    let drawCount = Math.min(sys.particles.length, sys.capacity);
+    for (let i = 0; i < drawCount; i++) {
+      const p = sys.particles[i];
+      const base3 = i * 3;
+      const base4 = i * 4;
+      posArr[base3] = p.position.x;
+      posArr[base3 + 1] = p.position.y;
+      posArr[base3 + 2] = p.position.z;
+      sizeArr[i] = p.currentSize;
+      colArr[base4] = p.colour.r;
+      colArr[base4 + 1] = p.colour.g;
+      colArr[base4 + 2] = p.colour.b;
+      colArr[base4 + 3] = p.alpha;
+      angArr[i] = p.rotation;
     }
 
-    sys.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(positions, 3),
-    );
-    sys.geometry.setAttribute(
-      "size",
-      new THREE.Float32BufferAttribute(sizes, 1),
-    );
-    sys.geometry.setAttribute(
-      "aColor",
-      new THREE.Float32BufferAttribute(colours, 4),
-    );
-    sys.geometry.setAttribute(
-      "angle",
-      new THREE.Float32BufferAttribute(angles, 1),
-    );
-
+    sys.geometry.setDrawRange(0, drawCount);
     sys.geometry.attributes.position.needsUpdate = true;
     sys.geometry.attributes.size.needsUpdate = true;
     sys.geometry.attributes.aColor.needsUpdate = true;
     sys.geometry.attributes.angle.needsUpdate = true;
-
-    // Force update of bounding sphere to prevent frustum culling issues
-    sys.geometry.computeBoundingSphere();
   },
 
   remove() {

@@ -8,16 +8,35 @@
     <script src="/scripts/lib/aframe-v1.7.1.min.js"></script>
     <script src="/scripts/lib/aframe-extras.min.js"></script>
 
-    <script src="/scripts/components/text-font-setup.js"></script>
+    <!-- Debug config must load first -->
+    <script src="/scripts/components/config/debug-config.js"></script>
+
+    <!-- Core Components -->
+    <script src="/scripts/components/core/text-font-setup.js"></script>
+    <script src="/scripts/components/core/vr-stats.js"></script>
+    <script src="/scripts/components/core/training-state.js"></script>
+    <script src="/scripts/components/core/lod-model.js"></script>
+
+    <!-- UI Components -->
+    <script src="/scripts/components/ui/tutorial-hud.js"></script>
+    <script src="/scripts/components/ui/interactive-panels.js"></script>
+    <script src="/scripts/components/ui/training-manager.js"></script>
+
+    <!-- Particle Systems -->
     <script src="/scripts/components/particles/fire.js"></script>
     <script src="/scripts/components/particles/foam.js"></script>
-    <!-- <script src="/scripts/components/interaction-mode-manager.js"></script>
-    <script src="/scripts/components/anatomy-layer-manager.js"></script> -->
 
-    <!-- <script src="/scripts/components/hand-tracking/hand-color-manager.js"></script>
-    <script src="/scripts/components/hand-tracking/hand-movable.js"></script>
-    <script src="/scripts/components/hand-tracking/hand-rotatable.js"></script>
-    <script src="/scripts/components/hand-tracking/hand-scalable.js"></script> -->
+    <!-- Movement Controllers -->
+    <script src="/scripts/components/movement/movement-controller.js"></script>
+    <script src="/scripts/components/movement/simple-navmesh-constraint.js"></script>
+
+    <!-- Interaction Components -->
+    <script src="/scripts/components/interaction/extinguisher-controller.js"></script>
+
+    <!-- Scene Management -->
+    <script src="/scripts/components/core/scene-manager.js"></script>
+
+
 
     <style>
       body {
@@ -117,7 +136,7 @@
     <div id="loading-screen" class="immersia-bg">
       <img
         id="loading-logo"
-        src="/assets/Immersia_logo-removebg.png"
+        src="/assets/imgs/Immersia_logo-removebg.png"
         alt="Immersia Logo"
       />
       <div class="loading-spinner"></div>
@@ -142,7 +161,7 @@
         }
       });
     </script>
-    <a-scene renderer="antialias: true" background="color: #376c95">
+    <a-scene renderer="antialias: true; powerPreference: high-performance" background="color: #376c95" vr-stats>
       <a-assets>
         <a-asset-item
           id="font-msdf"
@@ -153,62 +172,42 @@
           src="/assets/fonts/Exo2-Regular.png"
           crossorigin="anonymous"
         />
-        <img id="sky" src="/assets/sky.jpg" />
-        <img id="foam-texture" src="/assets/foam.png" crossorigin="anonymous" />
-        <a-asset-item id="model-hangar" src="/assets/hangar.glb"></a-asset-item>
+        <img id="sky" src="/assets/textures/sky.jpg" />
+        <img id="foam-texture" src="/assets/textures/foam.png" crossorigin="anonymous" />
+        <!-- Extinguisher models -->
+        <a-asset-item
+          id="model-extintor-body"
+          src="/assets/models/fire_extinguisher/extintor_body.glb"
+        ></a-asset-item>
+        <a-asset-item
+          id="model-extintor-seal"
+          src="/assets/models/fire_extinguisher/extintor_lacre.glb"
+        ></a-asset-item>
+        <a-asset-item
+          id="model-extintor-hose"
+          src="/assets/models/fire_extinguisher/extintor_mangueira.glb"
+        ></a-asset-item>
+        <!-- Pallet model -->
         <a-asset-item
           id="model-wooden-pallet"
-          src="/assets/wooden-pallet.glb"
+          src="/assets/models/wooden-pallet.glb"
         ></a-asset-item>
       </a-assets>
 
       <script>
-        // Keep rig/camera following the animated nozzle for testing
-        AFRAME.registerComponent("follow-nozzle", {
-          schema: {
-            target: { type: "selector" },
-            offset: { type: "vec3", default: { x: 0, y: 0.15, z: 0.6 } },
-          },
-          init() {
-            this.tmpPos = new THREE.Vector3();
-            this.tmpQuat = new THREE.Quaternion();
-            this.tmpOff = new THREE.Vector3();
-          },
-          tick() {
-            const t = this.data.target;
-            if (!t) return;
-            t.object3D.getWorldPosition(this.tmpPos);
-            t.object3D.getWorldQuaternion(this.tmpQuat);
-            this.tmpOff.copy(this.data.offset).applyQuaternion(this.tmpQuat);
-            this.tmpPos.add(this.tmpOff);
-            this.el.object3D.position.copy(this.tmpPos);
-            this.el.object3D.quaternion.copy(this.tmpQuat);
-          },
-        });
+        // Standard VR rig - camera is the default viewport
       </script>
 
       <a-entity
         id="rig"
         position="0 1.6 -7"
+        movement-controller="mode: analog; enabled: false"
         movement-controls="speed: 0.15"
-        follow-nozzle="target: #foam-nozzle; offset: 0.35 0.05 0.5"
+        simple-navmesh-constraint="navmesh: .navmesh; fall: 0.5; height: 1.6"
       >
         <a-entity id="camera" camera look-controls></a-entity>
 
-        <!-- <a-entity
-          id="right-hand-tracking"
-          hand-tracking-grab-controls="hand: right; modelColor: #ffffff; modelOpacity: 0.9; modelStyle: mesh; hoverColor: #00ff00; hoverEnabled: true; color: #ffffff; enabled: false"
-          raycaster="enabled: false; objects: .interactable; far: 10; showLine: false"
-          hand-color-manager
-        ></a-entity> -->
-
-        <!-- <a-entity
-          id="left-hand-tracking"
-          hand-tracking-grab-controls="hand: left; modelColor: #ffffff; modelOpacity: 0.9; modelStyle: mesh; hoverColor: #00ff00; hoverEnabled: true; color: #ffffff; enabled: false"
-          raycaster="enabled: false; objects: .interactable; far: 10; showLine: false"
-          hand-color-manager
-        ></a-entity> -->
-
+        <!-- VR Controllers with raycaster for interaction -->
         <a-entity
           id="right-hand-controller"
           laser-controls="hand: right"
@@ -222,9 +221,101 @@
           raycaster="enabled: true; objects: .interactable; far: 10; showLine: true"
           line="color: #ffffff; opacity: 0.4"
         ></a-entity>
+
+        <!-- Tutorial HUD (non-interactive messages) -->
+        <a-entity id="tutorial-hud" tutorial-hud="enabled: true"></a-entity>
+
+        <!-- Interactive Panels (with movement lock) -->
+        <a-entity id="interactive-panels" interactive-panels="enabled: true"></a-entity>
+
+        <!-- Training Manager (orchestrates everything) -->
+        <a-entity id="training-manager" training-manager="enabled: true"></a-entity>
       </a-entity>
 
-      <a-entity id="hangar" gltf-model="#model-hangar"></a-entity>
+      <!-- Simple training environment (placeholder until optimized hangar is ready) -->
+      <a-entity id="training-environment">
+        <!-- Navmesh - defines walkable area -->
+        <a-plane
+          id="navmesh"
+          position="0 -0.01 0"
+          rotation="-90 0 0"
+          width="50"
+          height="50"
+          color="#2a2a2a"
+          shadow="receive: true"
+          visible="false"
+          class="navmesh"
+        ></a-plane>
+
+        <!-- Ground (visual) -->
+        <a-plane
+          position="0 0 0"
+          rotation="-90 0 0"
+          width="50"
+          height="50"
+          color="#2a2a2a"
+          shadow="receive: true"
+        ></a-plane>
+        
+        <!-- Back wall -->
+        <a-box
+          position="0 5 -25"
+          width="50"
+          height="10"
+          depth="0.5"
+          color="#3a3a3a"
+        ></a-box>
+        
+        <!-- Side walls -->
+        <a-box
+          position="-25 5 0"
+          width="0.5"
+          height="10"
+          depth="50"
+          color="#3a3a3a"
+        ></a-box>
+        <a-box
+          position="25 5 0"
+          width="0.5"
+          height="10"
+          depth="50"
+          color="#3a3a3a"
+        ></a-box>
+      </a-entity>
+
+      <!-- Extinguisher (starts hidden, shown during suppress phase) -->
+      <a-entity
+        id="extinguisher"
+        position="1 1.2 -10"
+        extinguisher-controller="
+          bodyModel: #extintor_body;
+          sealModel: #extintor_seal;
+          hoseModel: #extintor_hose;
+          enabled: false
+        "
+      >
+        <!-- Body + trigger -->
+        <a-entity id="extintor_body" 
+          gltf-model="#model-extintor-body"
+          position="0 0 0"
+          scale="1 1 1">
+        </a-entity>
+        
+        <!-- Seal (removable) -->
+        <a-entity id="extintor_seal"
+          gltf-model="#model-extintor-seal"
+          position="0 0.15 0"
+          scale="1 1 1">
+        </a-entity>
+        
+        <!-- Hose (visual reference) -->
+        <a-entity id="extintor_hose"
+          gltf-model="#model-extintor-hose"
+          position="0 0.05 0.08"
+          scale="1 1 1">
+        </a-entity>
+      </a-entity>
+
       <!-- Burning Box -->
       <a-entity
         id="burning-wooden-pallet"
@@ -233,8 +324,8 @@
           fireRate: 100;
           smokeRate: 2;
           ceilingSmokeRate: 35;
-          fireTexture: /assets/fire.png;
-          smokeTexture: /assets/smoke.png;
+          fireTexture: /assets/textures/fire.png;
+          smokeTexture: /assets/textures/smoke.png;
           radius: 0.5;
           maxLife: 1.8;
           maxSize: 4.5;
@@ -309,21 +400,7 @@
         });
       </script>
 
-      <!-- Debug foam nozzle to validate component; press "E" to toggle -->
-      <a-entity
-        id="foam-nozzle"
-        position="0 1.5 -10"
-        rotation="8 0 0"
-        foam="autoStart: false; rate: 280; jetLength: 4; jetRadius: 0.24; speed: 8; spread: 0.22; life: 0.85; sizeMin: 0.10; sizeMax: 0.22; gravity: -4.5; drag: 2.5; foamTexture: /assets/foam.png"
-      >
-        <a-cylinder
-          radius="0.04"
-          height="0.35"
-          color="#bbbbbb"
-          rotation="90 0 0"
-        ></a-cylinder>
-        <a-sphere radius="0.05" color="#e0e0e0" position="0 0.2 0"></a-sphere>
-      </a-entity>
+      <!-- Foam nozzle removed - now handled by extinguisher controller -->
 
       <!-- Ambient light provides base illumination for the entire scene -->
       <a-entity
@@ -331,19 +408,24 @@
         id="ambient-light"
       ></a-entity>
 
-      <!-- Main directional light simulating sunlight from skylights -->
+      <!-- Main directional light simulating sunlight -->
       <a-entity
-        light="type: directional; intensity: 0.8; castShadow: true; shadowCameraVisible: false"
+        light="type: directional; intensity: 0.8; castShadow: false; shadowCameraVisible: false"
         position="5 10 2"
         rotation="-45 0 0"
         id="sun-light"
       ></a-entity>
 
-      <!-- Point light for hangar interior depth -->
+      <!-- Point lights for environment depth -->
       <a-entity
         light="type: point; intensity: 0.6; distance: 30; decay: 2; color: #FFFFFF"
-        position="-1.7 4.8 -26.5"
+        position="-10 4.8 -15"
         id="point-light-1"
+      ></a-entity>
+      <a-entity
+        light="type: point; intensity: 0.6; distance: 30; decay: 2; color: #FFFFFF"
+        position="10 4.8 -15"
+        id="point-light-2"
       ></a-entity>
 
       <!-- Secondary fill light to reduce harsh shadows -->
@@ -357,17 +439,7 @@
 
     <script>
       // Toggle foam test with "E" until proper extinguisher handling is wired
-      document.addEventListener("keydown", (e) => {
-        if (e.key.toLowerCase() !== "e") return;
-        const nozzle = document.querySelector("#foam-nozzle");
-        if (!nozzle || !nozzle.components.foam) return;
-        const comp = nozzle.components.foam;
-        if (comp.emitting) {
-          comp.stop();
-        } else {
-          comp.start();
-        }
-      });
+      // Foam nozzle test removed - now handled by extinguisher controller
     </script>
   </body>
 </html>

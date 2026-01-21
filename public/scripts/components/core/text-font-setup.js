@@ -3,8 +3,8 @@ function setupTextFont(textElement) {
     return;
   }
   
-  const fontPath = '../assets/fonts/Exo2-Regular-msdf.json';
-  const fontImagePath = '../assets/fonts/Exo2-Regular.png';
+  const fontPath = '/assets/fonts/Exo2-Regular-msdf.json';
+  const fontImagePath = '/assets/fonts/Exo2-Regular.png';
   
   textElement.setAttribute('font', fontPath);
   textElement.setAttribute('font-image', fontImagePath);
@@ -20,7 +20,7 @@ AFRAME.registerComponent('text-font-setup', {
     this.observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === 1) { // Element node
+          if (node.nodeType === 1) {
             if (node.tagName === 'A-TEXT') {
               setupTextFont(node);
             }

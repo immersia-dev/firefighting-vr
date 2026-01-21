@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "dev:http": "vite --host",
     "serve": "vite preview --host",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node public/scripts/components/ui/__tests__/components.test.js"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.1.0",
