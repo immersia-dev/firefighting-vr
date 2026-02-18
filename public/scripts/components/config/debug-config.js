@@ -7,6 +7,7 @@
 
 window.DEBUG_CONFIG = {
   VERBOSE_LOGGING: false, // Toggle detailed logs on/off
+  DEV_MODE: false, // Skip intro panel, unlock movement, expose trainingDev helpers in console
   LOG_HAND_TRACKING: false,
   LOG_CLICK_LISTENER: false,
   LOG_RENDERER: false,

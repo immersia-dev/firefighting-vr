@@ -36,8 +36,6 @@
     <!-- Scene Management -->
     <script src="/scripts/components/core/scene-manager.js"></script>
 
-
-
     <style>
       body {
         margin: 0;
@@ -46,7 +44,8 @@
 
       /* Immersia background gradient (radial glows + dark base) */
       .immersia-bg {
-        background: radial-gradient(
+        background:
+          radial-gradient(
             900px 520px at 20% 0%,
             rgba(42, 198, 255, 0.2),
             transparent 55%
@@ -161,7 +160,11 @@
         }
       });
     </script>
-    <a-scene renderer="antialias: true; powerPreference: high-performance" background="color: #376c95" vr-stats>
+    <a-scene
+      renderer="antialias: true; powerPreference: high-performance"
+      background="color: #376c95"
+      vr-stats
+    >
       <a-assets>
         <a-asset-item
           id="font-msdf"
@@ -173,19 +176,23 @@
           crossorigin="anonymous"
         />
         <img id="sky" src="/assets/textures/sky.jpg" />
-        <img id="foam-texture" src="/assets/textures/foam.png" crossorigin="anonymous" />
+        <img
+          id="foam-texture"
+          src="/assets/textures/foam.png"
+          crossorigin="anonymous"
+        />
         <!-- Extinguisher models -->
         <a-asset-item
           id="model-extintor-body"
-          src="/assets/models/fire_extinguisher/extintor_body.glb"
+          src="/assets/models/fire_extinguisher/body.glb"
         ></a-asset-item>
         <a-asset-item
           id="model-extintor-seal"
-          src="/assets/models/fire_extinguisher/extintor_lacre.glb"
+          src="/assets/models/fire_extinguisher/seal.glb"
         ></a-asset-item>
         <a-asset-item
           id="model-extintor-hose"
-          src="/assets/models/fire_extinguisher/extintor_mangueira.glb"
+          src="/assets/models/fire_extinguisher/hose.glb"
         ></a-asset-item>
         <!-- Pallet model -->
         <a-asset-item
@@ -200,12 +207,12 @@
 
       <a-entity
         id="rig"
-        position="0 1.6 -7"
+        position="0 0 -7"
         movement-controller="mode: analog; enabled: false"
         movement-controls="speed: 0.15"
         simple-navmesh-constraint="navmesh: .navmesh; fall: 0.5; height: 1.6"
       >
-        <a-entity id="camera" camera look-controls></a-entity>
+        <a-entity id="camera" camera look-controls position="0 1.6 0"></a-entity>
 
         <!-- VR Controllers with raycaster for interaction -->
         <a-entity
@@ -213,23 +220,65 @@
           laser-controls="hand: right"
           raycaster="enabled: true; objects: .interactable; far: 10; showLine: true"
           line="color: #ffffff; opacity: 0.95"
-        ></a-entity>
+        >
+          <!-- Hand-attached extinguisher (hidden until grabbed) -->
+          <a-entity
+            id="extinguisher-hand"
+            visible="false"
+            position="0 -0.485 0.045"
+          >
+            <a-entity
+              id="extintor-hand-body"
+              gltf-model="#model-extintor-body"
+              scale="1 1 1"
+            >
+              <!-- Anchor: where the hose connects to the body.
+                   Adjust position in Inspector to match nozzle outlet. -->
+              <a-entity id="hose-anchor" position="0 0.3 0.05"></a-entity>
+            </a-entity>
+            <a-entity
+              id="extintor-hand-seal"
+              gltf-model="#model-extintor-seal"
+              position="-0.069 -0.500 -0.061"
+            ></a-entity>
+            <!-- GLTF hose commented out — dynamic spline hose by extinguisher-controller -->
+            <!--
+            <a-entity
+              gltf-model="#model-extintor-hose"
+              position="0 0.05 0.08"
+            ></a-entity>
+            -->
+          </a-entity>
+        </a-entity>
 
         <a-entity
           id="left-hand-controller"
           laser-controls="hand: left"
           raycaster="enabled: true; objects: .interactable; far: 10; showLine: true"
           line="color: #ffffff; opacity: 0.4"
-        ></a-entity>
+        >
+          <!-- Foam nozzle follows left hand (sprays from here) -->
+          <a-entity
+            id="foam-nozzle"
+            position="0 0 -0.05"
+            foam="texture: #foam-texture; rate: 60; speed: 6; spread: 0.15; particleSize: 0.08; maxParticles: 300"
+          ></a-entity>
+        </a-entity>
 
         <!-- Tutorial HUD (non-interactive messages) -->
         <a-entity id="tutorial-hud" tutorial-hud="enabled: true"></a-entity>
 
         <!-- Interactive Panels (with movement lock) -->
-        <a-entity id="interactive-panels" interactive-panels="enabled: true"></a-entity>
+        <a-entity
+          id="interactive-panels"
+          interactive-panels="enabled: true"
+        ></a-entity>
 
         <!-- Training Manager (orchestrates everything) -->
-        <a-entity id="training-manager" training-manager="enabled: true"></a-entity>
+        <a-entity
+          id="training-manager"
+          training-manager="enabled: true"
+        ></a-entity>
       </a-entity>
 
       <!-- Simple training environment (placeholder until optimized hangar is ready) -->
@@ -256,7 +305,7 @@
           color="#2a2a2a"
           shadow="receive: true"
         ></a-plane>
-        
+
         <!-- Back wall -->
         <a-box
           position="0 5 -25"
@@ -265,7 +314,7 @@
           depth="0.5"
           color="#3a3a3a"
         ></a-box>
-        
+
         <!-- Side walls -->
         <a-box
           position="-25 5 0"
@@ -283,38 +332,47 @@
         ></a-box>
       </a-entity>
 
-      <!-- Extinguisher (starts hidden, shown during suppress phase) -->
+      <!-- Extinguisher World Version (visible until grabbed) -->
       <a-entity
-        id="extinguisher"
+        id="extinguisher-world"
         position="1 1.2 -10"
-        extinguisher-controller="
-          bodyModel: #extintor_body;
-          sealModel: #extintor_seal;
-          hoseModel: #extintor_hose;
-          enabled: false
-        "
       >
-        <!-- Body + trigger -->
-        <a-entity id="extintor_body" 
+        <!-- Invisible grab collider (larger than model for easy targeting) -->
+        <a-box
+          id="extinguisher-collider"
+          class="interactable"
+          width="0.3"
+          height="0.6"
+          depth="0.3"
+          position="0 0 0"
+          material="transparent: true; opacity: 0"
+        ></a-box>
+
+        <!-- Visible models -->
+        <a-entity
           gltf-model="#model-extintor-body"
           position="0 0 0"
-          scale="1 1 1">
-        </a-entity>
-        
-        <!-- Seal (removable) -->
-        <a-entity id="extintor_seal"
+          scale="1 1 1"
+        ></a-entity>
+
+        <a-entity
           gltf-model="#model-extintor-seal"
           position="0 0.15 0"
-          scale="1 1 1">
-        </a-entity>
-        
-        <!-- Hose (visual reference) -->
-        <a-entity id="extintor_hose"
+          scale="1 1 1"
+        ></a-entity>
+
+        <a-entity
           gltf-model="#model-extintor-hose"
           position="0 0.05 0.08"
-          scale="1 1 1">
-        </a-entity>
+          scale="1 1 1"
+        ></a-entity>
       </a-entity>
+
+      <!-- Extinguisher Controller (scene-level orchestrator) -->
+      <a-entity
+        id="extinguisher-controller"
+        extinguisher-controller="enabled: true; gripHand: right"
+      ></a-entity>
 
       <!-- Burning Box -->
       <a-entity

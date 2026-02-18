@@ -1,29 +1,31 @@
 /**
  * Interactive Panels Component
- * 
+ *
  * Creates modal panels with buttons that lock player movement during interaction.
  * Uses VR raycaster to detect button clicks from controllers.
  * Panels are positioned relative to the player rig and follow camera movement.
  */
 
+const PANEL_MSDF_FONT = "font: /assets/fonts/Exo2-Regular-msdf.json; shader: msdf; negate: false";
+
 const PANEL_STYLE = {
-  width: 1,
-  height: 0.8,
-  position: { x: 0, y: 0, z: -3 },
+  width: 2.4,
+  height: 1.2,
+  position: { x: 0, y: 0, z: -2 },
   borders: [
-    { w: 1.04, h: 0.84, c: '#A855F7', o: 0.35, z: -0.01 },
-    { w: 1.02, h: 0.82, c: '#2A2CFF', o: 0.15, z: -0.015 },
-    { w: 1.00, h: 0.80, c: '#FFFFFF', o: 0.08, z: -0.02 }
+    { w: 2.46, h: 1.26, c: "#A855F7", o: 0.35, z: -0.01 },
+    { w: 2.44, h: 1.24, c: "#2A2CFF", o: 0.15, z: -0.015 },
+    { w: 2.4, h: 1.2, c: "#FFFFFF", o: 0.08, z: -0.02 },
   ],
-  // Text area constrained to 85% of panel width (0.85 units)
-  contentWidth: 0.85
+  // Text area constrained to 85% of panel width
+  contentWidth: 2.0,
 };
 
-AFRAME.registerComponent('interactive-panels', {
-  schema: { enabled: { type: 'boolean', default: true } },
+AFRAME.registerComponent("interactive-panels", {
+  schema: { enabled: { type: "boolean", default: true } },
 
   init: function () {
-    console.log('[InteractivePanels] Initializing');
+    console.log("[InteractivePanels] Initializing");
     this.scene = this.el.sceneEl;
     this.currentPanel = null;
     this.panels = {};
@@ -40,20 +42,25 @@ AFRAME.registerComponent('interactive-panels', {
   _setupPanels: function () {
     this.panels = {
       intro: {
-        title: 'TREINAMENTO DE COMBATE A INCÊNDIO',
-        subtitle: 'Bem-vindo ao Simulador VR',
-        description: 'Este treinamento irá guiá-lo através dos passos essenciais para combater um incêndio com segurança.',
-        buttons: [{ text: 'COMEÇAR', action: 'toMovement', color: '#A855F7' }]
+        title: "TREINAMENTO DE COMBATE A INCÊNDIO",
+        subtitle: "Bem-vindo ao Simulador VR",
+        description:
+          "Este treinamento irá guiá-lo através dos passos essenciais para combater um incêndio com segurança.",
+        buttons: [{ text: "COMEÇAR", action: "toMovement", color: "#A855F7" }],
       },
       movement_select: {
-        title: 'SELECIONE O MODO DE MOVIMENTO',
-        subtitle: 'Como você prefere se mover?',
-        description: '',
+        title: "SELECIONE O MODO DE MOVIMENTO",
+        subtitle: "Como você prefere se mover?",
+        description: "",
         buttons: [
-          { text: '🎮  ANALÓGICO', action: 'analogMovement', color: '#3B82F6' },
-          { text: '📍  TELEPORTE', action: 'teleportMovement', color: '#10B981' }
-        ]
-      }
+          { text: "🎮  ANALÓGICO", action: "analogMovement", color: "#3B82F6" },
+          {
+            text: "📍  TELEPORTE",
+            action: "teleportMovement",
+            color: "#10B981",
+          },
+        ],
+      },
     };
   },
 
@@ -63,9 +70,12 @@ AFRAME.registerComponent('interactive-panels', {
    */
   _setupControllerListeners: function () {
     const self = this;
-    ['#right-hand-controller', '#left-hand-controller'].forEach(selector => {
+    ["#right-hand-controller", "#left-hand-controller"].forEach((selector) => {
       const ctrl = document.querySelector(selector);
-      if (ctrl) ctrl.addEventListener('click', (e) => self._handleClick(e.detail.intersectedEl));
+      if (ctrl)
+        ctrl.addEventListener("click", (e) =>
+          self._handleClick(e.detail.intersectedEl),
+        );
     });
   },
 
@@ -75,9 +85,9 @@ AFRAME.registerComponent('interactive-panels', {
    */
   _handleClick: function (element) {
     if (!element) return;
-    const action = element.getAttribute('data-panel-action');
+    const action = element.getAttribute("data-panel-action");
     if (action && this.callbacks[action]) {
-      console.log('[InteractivePanels] Action:', action);
+      console.log("[InteractivePanels] Action:", action);
       this.callbacks[action]();
     }
   },
@@ -85,27 +95,30 @@ AFRAME.registerComponent('interactive-panels', {
   /**
    * Displays a modal panel and registers button action callbacks.
    * Clears any existing panel, locks movement, and builds visual structure.
-   * 
+   *
    * @param {string} panelId - Panel identifier (intro, movement_select)
    * @param {Object} callbacks - Map of action names to callback functions
    */
   showPanel: function (panelId, callbacks) {
     const panel = this.panels[panelId];
     if (!panel) {
-      console.warn('[InteractivePanels] Panel not found:', panelId);
+      console.warn("[InteractivePanels] Panel not found:", panelId);
       return;
     }
-    console.log('[InteractivePanels] Showing:', panelId);
+    console.log("[InteractivePanels] Showing:", panelId);
     this.callbacks = callbacks || {};
     this.clearPanel();
     this.lockMovement();
-    const rig = document.querySelector('#rig');
-    const container = document.createElement('a-entity');
-    container.id = 'interactive-panel';
-    container.setAttribute('position', `${PANEL_STYLE.position.x} ${PANEL_STYLE.position.y} ${PANEL_STYLE.position.z}`);
+    const camera = document.querySelector("#camera");
+    const container = document.createElement("a-entity");
+    container.id = "interactive-panel";
+    container.setAttribute(
+      "position",
+      `${PANEL_STYLE.position.x} ${PANEL_STYLE.position.y} ${PANEL_STYLE.position.z}`,
+    );
     this._buildVisuals(container);
     this._buildContent(container, panel);
-    rig.appendChild(container);
+    camera.appendChild(container);
     this.currentPanel = container;
   },
 
@@ -115,16 +128,22 @@ AFRAME.registerComponent('interactive-panels', {
    */
   _buildVisuals: function (container) {
     // Main background
-    const bg = this._plane(PANEL_STYLE.width, PANEL_STYLE.height, '#070615', { o: 0.75 });
+    const bg = this._plane(PANEL_STYLE.width, PANEL_STYLE.height, "#070615", {
+      o: 0.75,
+    });
     container.appendChild(bg);
     // Borders
-    PANEL_STYLE.borders.forEach(b => {
+    PANEL_STYLE.borders.forEach((b) => {
       const border = this._plane(b.w, b.h, b.c, { o: b.o, z: b.z });
       container.appendChild(border);
     });
     // Accent lines
-    container.appendChild(this._plane(1.00, 0.02, '#A855F7', { o: 0.5, z: 0.01, y: 0.35 }));
-    container.appendChild(this._plane(1.00, 0.015, '#2A2CFF', { o: 0.3, z: 0.01, y: -0.35 }));
+    container.appendChild(
+      this._plane(2.4, 0.02, "#A855F7", { o: 0.5, z: 0.01, y: 0.55 }),
+    );
+    container.appendChild(
+      this._plane(2.4, 0.015, "#2A2CFF", { o: 0.3, z: 0.01, y: -0.55 }),
+    );
   },
 
   /**
@@ -132,46 +151,56 @@ AFRAME.registerComponent('interactive-panels', {
    * Text is constrained to 85% of panel width with proper wrapping.
    */
   _buildContent: function (container, panel) {
-    this._text(container, panel.title, 0.28, 24, '#FFFFFF');
-    if (panel.subtitle) this._text(container, panel.subtitle, 0.15, 16, '#A855F7');
-    if (panel.description) this._text(container, panel.description, 0, 13, '#E5E7EB');
+    this._text(container, panel.title, 0.38, 32, "#FFFFFF");
+    if (panel.subtitle)
+      this._text(container, panel.subtitle, 0.2, 22, "#A855F7");
+    if (panel.description)
+      this._text(container, panel.description, 0, 18, "#E5E7EB");
     const btnCount = panel.buttons.length;
-    const spacing = btnCount > 1 ? 0.25 : 0;
-    const startX = (btnCount - 1) * spacing / 2;
-    panel.buttons.forEach((btn, i) => this._button(container, btn, startX - i * spacing, -0.28));
+    const spacing = btnCount > 1 ? 0.7 : 0;
+    const startX = ((btnCount - 1) * spacing) / 2;
+    panel.buttons.forEach((btn, i) =>
+      this._button(container, btn, startX - i * spacing, -0.38),
+    );
   },
 
   /**
    * Creates an interactive button with hover effects.
    * Adds .interactable class for raycaster detection.
-   * 
+   *
    * @param {Element} parent - Parent container element
    * @param {Object} cfg - Button config (text, action, color)
    * @param {number} x - X position offset
    * @param {number} y - Y position offset
    */
   _button: function (parent, cfg, x, y) {
-    const btn = document.createElement('a-plane');
-    btn.setAttribute('width', '0.35');
-    btn.setAttribute('height', '0.10');
-    btn.setAttribute('color', cfg.color);
-    btn.setAttribute('position', `${x} ${y} 0.02`);
-    btn.setAttribute('material', 'transparent: true; opacity: 0.8; side: double');
-    btn.classList.add('interactable');
-    btn.setAttribute('data-panel-action', cfg.action);
-    btn.appendChild(this._plane(0.37, 0.12, '#FFFFFF', { o: 0.15, z: -0.01 }));
-    const txt = document.createElement('a-entity');
-    txt.setAttribute('text', `value: ${cfg.text}; align: center; fontSize: 12; color: #FFFFFF; width: 1; anchor: center`);
-    txt.setAttribute('position', '0 0 0.02');
-    txt.setAttribute('pointer-events', 'none');
+    const btn = document.createElement("a-plane");
+    btn.setAttribute("width", "0.6");
+    btn.setAttribute("height", "0.15");
+    btn.setAttribute("color", cfg.color);
+    btn.setAttribute("position", `${x} ${y} 0.02`);
+    btn.setAttribute(
+      "material",
+      "transparent: true; opacity: 0.8; side: double",
+    );
+    btn.classList.add("interactable");
+    btn.setAttribute("data-panel-action", cfg.action);
+    btn.appendChild(this._plane(0.63, 0.18, "#FFFFFF", { o: 0.15, z: -0.01 }));
+    const txt = document.createElement("a-entity");
+    txt.setAttribute(
+      "text",
+      `value: ${cfg.text}; align: center; fontSize: 16; color: #FFFFFF; width: 1.5; anchor: center; ${PANEL_MSDF_FONT}`,
+    );
+    txt.setAttribute("position", "0 0 0.02");
+    txt.setAttribute("pointer-events", "none");
     btn.appendChild(txt);
-    btn.addEventListener('mouseenter', () => {
-      btn.setAttribute('material', 'opacity: 1');
-      btn.setAttribute('scale', '1.05 1.05 1');
+    btn.addEventListener("mouseenter", () => {
+      btn.setAttribute("material", "opacity: 1");
+      btn.setAttribute("scale", "1.05 1.05 1");
     });
-    btn.addEventListener('mouseleave', () => {
-      btn.setAttribute('material', 'opacity: 0.8');
-      btn.setAttribute('scale', '1 1 1');
+    btn.addEventListener("mouseleave", () => {
+      btn.setAttribute("material", "opacity: 0.8");
+      btn.setAttribute("scale", "1 1 1");
     });
     parent.appendChild(btn);
   },
@@ -179,7 +208,7 @@ AFRAME.registerComponent('interactive-panels', {
   /**
    * Creates a text entity with specified styling and position.
    * Text automatically wraps to stay within 85% of panel width.
-   * 
+   *
    * @param {Element} container - Parent element
    * @param {string} text - Text content
    * @param {number} y - Vertical position
@@ -187,16 +216,19 @@ AFRAME.registerComponent('interactive-panels', {
    * @param {string} color - Hex color code
    */
   _text: function (container, text, y, size, color) {
-    const entity = document.createElement('a-entity');
+    const entity = document.createElement("a-entity");
     // Width 0.85 ensures text stays within 85% of panel (0.85 units)
-    entity.setAttribute('text', `value: ${text}; align: center; width: ${PANEL_STYLE.contentWidth}; fontSize: ${size}; color: ${color}; wrapCount: 28; anchor: center`);
-    entity.setAttribute('position', `0 ${y} 0.02`);
+    entity.setAttribute(
+      "text",
+      `value: ${text}; align: center; width: ${PANEL_STYLE.contentWidth}; fontSize: ${size}; color: ${color}; wrapCount: 45; anchor: center; ${PANEL_MSDF_FONT}`,
+    );
+    entity.setAttribute("position", `0 ${y} 0.02`);
     container.appendChild(entity);
   },
 
   /**
    * Helper to create a-plane elements with optional positioning.
-   * 
+   *
    * @param {number} w - Width in meters
    * @param {number} h - Height in meters
    * @param {string} c - Hex color
@@ -204,13 +236,16 @@ AFRAME.registerComponent('interactive-panels', {
    * @returns {Element} Configured a-plane element
    */
   _plane: function (w, h, c, opts = {}) {
-    const p = document.createElement('a-plane');
-    p.setAttribute('width', w.toString());
-    p.setAttribute('height', h.toString());
-    p.setAttribute('color', c);
-    p.setAttribute('material', `transparent: true; opacity: ${opts.o || 1}; side: double`);
+    const p = document.createElement("a-plane");
+    p.setAttribute("width", w.toString());
+    p.setAttribute("height", h.toString());
+    p.setAttribute("color", c);
+    p.setAttribute(
+      "material",
+      `transparent: true; opacity: ${opts.o || 1}; side: double`,
+    );
     if (opts.z !== undefined || opts.y !== undefined) {
-      p.setAttribute('position', `0 ${opts.y || 0} ${opts.z || 0}`);
+      p.setAttribute("position", `0 ${opts.y || 0} ${opts.z || 0}`);
     }
     return p;
   },
@@ -220,24 +255,26 @@ AFRAME.registerComponent('interactive-panels', {
    * Affects both movement-controller and movement-controls on rig.
    */
   lockMovement: function () {
-    console.log('[InteractivePanels] Locking movement');
+    console.log("[InteractivePanels] Locking movement");
     this.isLocked = true;
-    const movCtrl = document.querySelector('[movement-controller]');
-    if (movCtrl) movCtrl.setAttribute('movement-controller', 'enabled: false');
-    const rig = document.querySelector('#rig');
-    if (rig && rig.hasAttribute('movement-controls')) rig.setAttribute('movement-controls', 'enabled: false');
+    const movCtrl = document.querySelector("[movement-controller]");
+    if (movCtrl) movCtrl.setAttribute("movement-controller", "enabled: false");
+    const rig = document.querySelector("#rig");
+    if (rig && rig.hasAttribute("movement-controls"))
+      rig.setAttribute("movement-controls", "enabled: false");
   },
 
   /**
    * Re-enables player movement by setting enabled:true on movement components.
    */
   unlockMovement: function () {
-    console.log('[InteractivePanels] Unlocking movement');
+    console.log("[InteractivePanels] Unlocking movement");
     this.isLocked = false;
-    const movCtrl = document.querySelector('[movement-controller]');
-    if (movCtrl) movCtrl.setAttribute('movement-controller', 'enabled: true');
-    const rig = document.querySelector('#rig');
-    if (rig && rig.hasAttribute('movement-controls')) rig.setAttribute('movement-controls', 'enabled: true');
+    const movCtrl = document.querySelector("[movement-controller]");
+    if (movCtrl) movCtrl.setAttribute("movement-controller", "enabled: true");
+    const rig = document.querySelector("#rig");
+    if (rig && rig.hasAttribute("movement-controls"))
+      rig.setAttribute("movement-controls", "enabled: true");
   },
 
   /**
@@ -253,5 +290,5 @@ AFRAME.registerComponent('interactive-panels', {
   remove: function () {
     this.clearPanel();
     this.unlockMovement();
-  }
+  },
 });

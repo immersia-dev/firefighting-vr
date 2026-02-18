@@ -79,7 +79,7 @@ AFRAME.registerComponent("fire", {
 
   init() {
     if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_PARTICLES) {
-      window.debugLog('Fire', 'Initializing fire system', this.data);
+      window.debugLog("Fire", "Initializing fire system", this.data);
     }
     this.clock = new THREE.Clock();
     this.systems = [];
@@ -359,8 +359,17 @@ AFRAME.registerComponent("fire", {
         0,
         this.fireIntensity - this.suppressionRate * dt,
       );
-      if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_PARTICLES && prevIntensity > 0.1 && this.fireIntensity <= 0.1) {
-        window.debugLog('Fire', 'Fire nearly extinguished!', this.fireIntensity.toFixed(2));
+      if (
+        window.DEBUG_CONFIG &&
+        window.DEBUG_CONFIG.LOG_PARTICLES &&
+        prevIntensity > 0.1 &&
+        this.fireIntensity <= 0.1
+      ) {
+        window.debugLog(
+          "Fire",
+          "Fire nearly extinguished!",
+          this.fireIntensity.toFixed(2),
+        );
       }
     } else {
       // Optional: slight recovery if no foam (commented out for now)

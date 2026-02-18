@@ -1,98 +1,172 @@
 /**
  * Training Manager - Orquestra todo o fluxo de treinamento
  * Controla: Painéis Interativos → Liberação de Movimento → Tutorial HUD
+ *
+ * In dev mode (DEBUG_CONFIG.DEV_MODE = true):
+ *   - Skips intro panel, unlocks movement immediately
+ *   - State machine is available but does not auto-advance
+ *   - Use console helpers: window.trainingDev.forward() / .back() / .goTo('suppress')
  */
 
-AFRAME.registerComponent('training-manager', {
+AFRAME.registerComponent("training-manager", {
   schema: {
-    enabled: { type: 'boolean', default: true }
+    enabled: { type: "boolean", default: true },
   },
 
   init: function () {
-    console.log('[TrainingManager] Initializing');
+    console.log("[TrainingManager] Initializing");
 
     this.scene = this.el.sceneEl;
-    this.currentPhase = 'intro';
-    this.phases = ['intro', 'movement_select', 'training'];
-    this.currentTrainingStep = 0;
-    this.trainingSteps = ['sizeup', 'approach', 'suppress', 'overhaul', 'done'];
+    this.isDevMode = window.DEBUG_CONFIG && window.DEBUG_CONFIG.DEV_MODE;
 
-    if (!this.schema.enabled) return;
+    if (!this.data.enabled) return;
+
+    // Expose dev helpers on window for console use
+    this._exposeDevHelpers();
 
     // Aguardar scene estar pronta
-    this.scene.addEventListener('loaded', () => {
-      setTimeout(() => this.startTraining(), 500);
+    this.scene.addEventListener("loaded", () => {
+      setTimeout(() => {
+        if (this.isDevMode) {
+          this._startDevMode();
+        } else {
+          this.startTraining();
+        }
+      }, 500);
     });
   },
 
   startTraining: function () {
-    console.log('[TrainingManager] Starting training flow');
+    console.log("[TrainingManager] Starting training flow");
     this.showIntroPanel();
   },
 
   showIntroPanel: function () {
-    const panelComponent = document.querySelector('[interactive-panels]');
+    const panelComponent = document.querySelector("[interactive-panels]");
     if (!panelComponent) {
-      console.warn('[TrainingManager] Interactive panels component not found');
+      console.warn("[TrainingManager] Interactive panels component not found");
       return;
     }
 
-    panelComponent.components['interactive-panels'].showPanel('intro', {
-      toMovement: () => this.showMovementSelectPanel()
-    });
-  },
-
-  showMovementSelectPanel: function () {
-    const panelComponent = document.querySelector('[interactive-panels]');
-
-    panelComponent.components['interactive-panels'].showPanel('movement_select', {
-      analogMovement: () => this.startMainTraining(),
-      teleportMovement: () => this.startMainTraining()
+    panelComponent.components["interactive-panels"].showPanel("intro", {
+      toMovement: () => this.startMainTraining(),
     });
   },
 
   startMainTraining: function () {
-    console.log('[TrainingManager] Starting main training phase');
+    console.log("[TrainingManager] Starting main training phase");
 
-    const panelComponent = document.querySelector('[interactive-panels]');
-    const hudComponent = document.querySelector('[tutorial-hud]');
+    const panelComponent = document.querySelector("[interactive-panels]");
 
     // Limpar painel
-    panelComponent.components['interactive-panels'].clearPanel();
+    panelComponent.components["interactive-panels"].clearPanel();
 
     // Liberar movimento
-    panelComponent.components['interactive-panels'].unlockMovement();
+    panelComponent.components["interactive-panels"].unlockMovement();
 
-    // Mostrar primeira mensagem
-    if (hudComponent && hudComponent.components['tutorial-hud']) {
+    // Show initial HUD message
+    const hudComponent = document.querySelector("[tutorial-hud]");
+    if (hudComponent && hudComponent.components["tutorial-hud"]) {
       setTimeout(() => {
-        hudComponent.components['tutorial-hud'].show('Pegue o extintor para começar o treinamento', 5000);
+        hudComponent.components["tutorial-hud"].show(
+          "Pegue o extintor para começar o treinamento",
+          5000,
+        );
       }, 500);
     }
-
-    this.currentPhase = 'training';
-    this.showTrainingHud();
   },
 
-  showTrainingHud: function () {
-    const hudComponent = document.querySelector('[tutorial-hud]');
-    if (!hudComponent || !hudComponent.components['tutorial-hud']) return;
+  /**
+   * Dev mode: skip intro, unlock movement, log available commands.
+   */
+  _startDevMode: function () {
+    console.log(
+      "%c[DEV MODE] Training Manager - interaction testing mode",
+      "color: #10B981; font-weight: bold; font-size: 14px",
+    );
+    console.log(
+      "%cAvailable commands:\n" +
+        "  trainingDev.forward()        - Next state\n" +
+        "  trainingDev.back()           - Previous state\n" +
+        "  trainingDev.goTo('suppress') - Jump to state\n" +
+        "  trainingDev.get()            - Current state\n" +
+        "  trainingDev.list()           - All states\n" +
+        "  trainingDev.reset()          - Reset to intro\n" +
+        "  trainingDev.showPanel()      - Show intro panel\n" +
+        "  trainingDev.hidePanel()      - Hide current panel",
+      "color: #A855F7",
+    );
 
-    const messages = [
-      'Observe o incêndio antes de agir',
-      'Aborde com segurança, mantendo distância',
-      'Use a técnica PASS: Pressione, Aponte, Varre, Segue',
-      'Verifique se há focos secundários',
-      'Treinamento concluído com sucesso!'
-    ];
+    // Unlock movement immediately
+    const panelComponent = document.querySelector("[interactive-panels]");
+    if (panelComponent) {
+      panelComponent.components["interactive-panels"].unlockMovement();
+    }
+  },
 
-    const hud = hudComponent.components['tutorial-hud'];
-
-    // Mostrar mensagens em sequência
-    messages.forEach((msg, idx) => {
-      setTimeout(() => {
-        hud.show(msg, 4000);
-      }, idx * 5000 + 2000);
-    });
-  }
+  /**
+   * Expose window.trainingDev helpers for console interaction.
+   */
+  _exposeDevHelpers: function () {
+    const self = this;
+    window.trainingDev = {
+      forward: function () {
+        const el = document.querySelector("[training-state]");
+        if (el && el.trainingState) {
+          el.trainingState.forward();
+          console.log("[DEV] State:", el.trainingState.get());
+        } else {
+          console.warn("[DEV] training-state component not found");
+        }
+      },
+      back: function () {
+        const el = document.querySelector("[training-state]");
+        if (el && el.trainingState) {
+          el.trainingState.back();
+          console.log("[DEV] State:", el.trainingState.get());
+        }
+      },
+      goTo: function (state) {
+        const el = document.querySelector("[training-state]");
+        if (el && el.trainingState) {
+          el.trainingState.goTo(state);
+          console.log("[DEV] State:", el.trainingState.get());
+        }
+      },
+      get: function () {
+        const el = document.querySelector("[training-state]");
+        if (el && el.trainingState) {
+          const state = el.trainingState.get();
+          console.log("[DEV] Current state:", state, "| Desc:", el.trainingState.getDesc());
+          return state;
+        }
+      },
+      list: function () {
+        const el = document.querySelector("[training-state]");
+        if (el && el.trainingState) {
+          const all = el.trainingState.getAll();
+          const current = el.trainingState.get();
+          console.log("[DEV] States:", all.map(s => s === current ? `[${s}]` : s).join(" → "));
+          return all;
+        }
+      },
+      reset: function () {
+        const el = document.querySelector("[training-state]");
+        if (el && el.trainingState) {
+          el.trainingState.reset();
+          console.log("[DEV] Reset to:", el.trainingState.get());
+        }
+      },
+      showPanel: function () {
+        self.showIntroPanel();
+      },
+      hidePanel: function () {
+        const panelComponent = document.querySelector("[interactive-panels]");
+        if (panelComponent) {
+          panelComponent.components["interactive-panels"].clearPanel();
+          panelComponent.components["interactive-panels"].unlockMovement();
+        }
+      },
+    };
+  },
 });

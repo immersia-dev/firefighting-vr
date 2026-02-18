@@ -5,6 +5,7 @@ Experiência de treinamento em realidade virtual para combate a incêndios, dese
 ## 🎯 Objetivo
 
 Treinar operadores em procedimentos de combate a incêndio em um ambiente VR seguro, com:
+
 - Simulação realista de fogo e fumaça
 - Seleção de modo de movimento (analógico ou teleporte)
 - Estados progressivos de treinamento (avaliação → abordagem → supressão → verificação)
@@ -14,17 +15,20 @@ Treinar operadores em procedimentos de combate a incêndio em um ambiente VR seg
 ## ✨ Funcionalidades
 
 ### Movimento VR
+
 - **Analógico**: Movimento contínuo via thumbstick esquerdo
 - **Teleporte**: Teleportação via raycaster e A-Frame Extras
 - Seleção via tela de boas-vindas antes de iniciar
 
 ### Sistema de Treinamento
+
 - 6 estados de treinamento (intro → sizeup → approach → suppress → overhaul → done)
 - Transições automáticas entre estados
 - Feedback de progresso
 - Tela de conclusão com opção de reiniciar
 
 ### Simulação Ambiental
+
 - Fogo realista com partículas otimizadas (pre-allocated buffers)
 - Fumaça subindo até o teto com distribuição realista
 - Espuma de extintor com física de partículas
@@ -32,6 +36,7 @@ Treinar operadores em procedimentos de combate a incêndio em um ambiente VR seg
 - Ambiente 3D (chão, paredes, placeholder de hangar)
 
 ### Interface
+
 - Componente HUD unificado (`generic-hud-panel`) para UI
 - Painel com glassmorphism effect
 - Botões interativos com hover effects e vibração
@@ -39,6 +44,7 @@ Treinar operadores em procedimentos de combate a incêndio em um ambiente VR seg
 - Loading screen com branding Immersia
 
 ### Otimizações
+
 - Renderer configurado para high-performance GPU
 - Shadows desativadas
 - Partículas com buffers pré-alocados
@@ -134,6 +140,7 @@ Completion Screen
 ## 🎮 Como Usar
 
 ### Na Tela de Boas-vindas
+
 1. Selecione seu método de movimento:
    - 🎮 **Movimento Analógico**: Use thumbstick esquerdo para andar
    - 🎯 **Teleporte**: Use raycaster do controle esquerdo + trigger
@@ -141,12 +148,14 @@ Completion Screen
 2. Clique em **"▶️ INICIAR TREINAMENTO"**
 
 ### Durante o Treinamento
+
 - **Modo Analógico**: Use thumbstick para se mover
 - **Modo Teleporte**: Aponte e clique o trigger para teleportar
 - **Interação**: Use raycaster do controle direito para clicar botões
 - **Vibração**: Controladores vibram ao fazer hover/click
 
 ### Após Conclusão
+
 - Clique em **"🔄 REINICIAR"** para voltar ao início
 
 ---
@@ -154,12 +163,14 @@ Completion Screen
 ## 🔧 Desenvolvimento Local
 
 ### Pré-requisitos
+
 ```bash
 Node.js >= 16.0.0
 npm ou yarn
 ```
 
 ### Instalação
+
 ```bash
 # Clonar repositório
 git clone <repo-url>
@@ -170,6 +181,7 @@ npm install
 ```
 
 ### Rodar Localmente
+
 ```bash
 # Dev server com HTTPS
 npm run dev
@@ -180,6 +192,7 @@ npm run dev
 ```
 
 ### Build Produção
+
 ```bash
 npm run build
 npm run preview  # Preview do build
@@ -195,16 +208,17 @@ Edite `public/scripts/components/config/debug-config.js`:
 
 ```javascript
 window.DEBUG_CONFIG = {
-  LOG_CONTROLS: true,    // Entrada do usuário
-  LOG_TRAINING: true,    // Transições de estado
-  LOG_PARTICLES: false,  // Partículas
-  SHOW_STATS: true       // HUD de estatísticas
+  LOG_CONTROLS: true, // Entrada do usuário
+  LOG_TRAINING: true, // Transições de estado
+  LOG_PARTICLES: false, // Partículas
+  SHOW_STATS: true, // HUD de estatísticas
 };
 ```
 
 ### Testes Rápidos
 
 Veja [TESTING-GUIDE.md](TESTING-GUIDE.md) para:
+
 - ✅ Teste 1: Carregar página
 - ✅ Teste 2: Seleção de movimento
 - ✅ Teste 3: Iniciar treinamento
@@ -215,7 +229,9 @@ Veja [TESTING-GUIDE.md](TESTING-GUIDE.md) para:
 ## 📊 Componentes Principais
 
 ### welcome-screen.js
+
 Tela inicial com seleção de modo de movimento.
+
 ```javascript
 // Métodos
 el.components['welcome-screen'].show()
@@ -228,27 +244,33 @@ scene.addEventListener('startTraining', ...)
 ```
 
 ### training-state.js
+
 Máquina de estados para guiar o treinamento.
+
 ```javascript
 // Estados: intro → sizeup → approach → suppress → overhaul → done
-el.components['training-state'].next()          // Próximo
-el.components['training-state'].reset()         // Reiniciar
-el.components['training-state'].getCurrentState() // Atual
+el.components["training-state"].next(); // Próximo
+el.components["training-state"].reset(); // Reiniciar
+el.components["training-state"].getCurrentState(); // Atual
 
 // Eventos
 // 'training-state-enter': { state: 'sizeup' }
 ```
 
 ### movement-controller.js
+
 Gerencia modos de movimento (analógico/teleporte).
+
 ```javascript
-el.components['movement-controller'].setMode('analog' | 'teleport')
-el.components['movement-controller'].setEnabled(true | false)
-el.components['movement-controller'].getMode()
+el.components["movement-controller"].setMode("analog" | "teleport");
+el.components["movement-controller"].setEnabled(true | false);
+el.components["movement-controller"].getMode();
 ```
 
 ### scene-manager.js
+
 Orquestração de transições entre cenas.
+
 ```javascript
 // Listeners:
 // 'training-start'     - Inicia treinamento
@@ -257,7 +279,9 @@ Orquestração de transições entre cenas.
 ```
 
 ### generic-hud-panel.js
+
 Componente HUD unificado para painéis/botões/áudio.
+
 ```javascript
 // 40+ propriedades: text, title, audio, button, haptic, animação, etc
 // isButton: true para criar botões interativos
@@ -269,11 +293,13 @@ Componente HUD unificado para painéis/botões/áudio.
 ## 📈 Performance
 
 ### Targets
+
 - ✅ 60 FPS mínimo em VR (WebXR)
 - ✅ < 100ms latência
 - ✅ Sem memory leaks
 
 ### Otimizações Implementadas
+
 - Renderer: `powerPreference: 'high-performance'`
 - Shadows: Desativadas
 - Partículas: Pre-allocated buffers (100 max)
@@ -281,9 +307,10 @@ Componente HUD unificado para painéis/botões/áudio.
 - Garbage collection: Reuso de vectors/quaternions
 
 ### Monitorar
+
 ```javascript
 // Ativar HUD de estatísticas
-window.DEBUG_CONFIG.SHOW_STATS = true
+window.DEBUG_CONFIG.SHOW_STATS = true;
 ```
 
 ---
@@ -300,18 +327,21 @@ window.DEBUG_CONFIG.SHOW_STATS = true
 ## 🎓 Próximos Passos
 
 ### Curto Prazo
+
 - [ ] Testar no Meta Quest 3 real
 - [ ] Implementar HUDs de estado de treinamento
 - [ ] Adicionar interação com foam/extinguidor
 - [ ] Adicionar feedback de áudio para estados
 
 ### Médio Prazo
+
 - [ ] Integrar modelo real de hangar
 - [ ] Adicionar níveis de dificuldade
 - [ ] Sistema de scoring/progressão
 - [ ] Salvamento de progresso
 
 ### Longo Prazo
+
 - [ ] Multiplayer/colaboração
 - [ ] Analytics de performance
 - [ ] Mobile app companion

@@ -1,265 +1,442 @@
 /**
  * Extinguisher Controller Component
- * 
- * Gerencia interação realista com extintor:
- * - Lacre pode ser removido (desaparece)
- * - Corpo segue a mão que segura
- * - Mangueira segue dinâmicamente entre nozzle e ponta
+ *
+ * Realistic fire extinguisher interaction using snap-to-hand technique:
+ *
+ * SETUP (in scene):
+ *   - World extinguisher: visible model at a fixed position with invisible grab collider
+ *   - Hidden hand extinguisher: pre-attached to dominant hand, invisible until grabbed
+ *   - Hose anchor (#hose-anchor): child of body model, marks where the hose exits the body
+ *   - Hose: single TubeGeometry spline from anchor → other hand (1 draw call)
+ *   - Foam nozzle: at hose tip, oriented along last tangent of the spline
+ *
+ * FLOW:
+ *   1. Aim raycaster at extinguisher collider
+ *   2. Grip once → snap to hand (toggle — no need to hold)
+ *   3. A/X removes safety seal
+ *   4. Trigger to spray foam from hose tip
+ *   5. Grip again → release back to world position
  */
 
-AFRAME.registerComponent('extinguisher-controller', {
+AFRAME.registerComponent("extinguisher-controller", {
   schema: {
-    bodyModel: { type: 'selector' },      // #extintor_body
-    sealModel: { type: 'selector' },      // #extintor_seal (remove on interact)
-    hoseModel: { type: 'selector' },      // #extintor_hose
-    sealRemovalDistance: { type: 'number', default: 0.3 }, // distance to trigger removal
-    enabled: { type: 'boolean', default: true }
+    enabled: { type: "boolean", default: true },
+    gripHand: { type: "string", default: "right" },
+    hoseTubularSegments: { type: "int", default: 16 },
+    hoseRadialSegments: { type: "int", default: 6 },
+    hoseRadius: { type: "number", default: 0.012 },
   },
 
   init: function () {
+    // ── State ──
+    this.isHeld = false;
     this.sealRemoved = false;
-    this.isGripped = false;
-    this.isSprayingActive = false;
-    this.hoseEndWorldPos = new THREE.Vector3();
-    this.bodyWorldPos = new THREE.Vector3();
-    
-    if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_CONTROLS) {
-      window.debugLog('ExtinguisherController', 'Initialized');
+    this.isSpraying = false;
+
+    // ── DOM references (resolved after scene load) ──
+    this.worldExtinguisher = null;
+    this.handExtinguisher = null;
+    this.sealEntity = null;
+    this.foamEntity = null;
+    this.hoseAnchor = null; // <a-entity id="hose-anchor"> inside the body
+
+    // ── Hose Three.js objects ──
+    this.hoseEntity = null;   // A-Frame wrapper <a-entity>
+    this._hoseMesh = null;    // THREE.Mesh inside hoseEntity
+    this._hoseMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      metalness: 0.3,
+      roughness: 0.7,
+    });
+
+    // ── Reusable math objects (avoid GC) ──
+    this._anchorWorld = new THREE.Vector3();
+    this._otherHandWorld = new THREE.Vector3();
+    this._mid1 = new THREE.Vector3();
+    this._mid2 = new THREE.Vector3();
+    this._tangent = new THREE.Vector3();
+    this._hoseDir = new THREE.Vector3();
+    this._foamQuat = new THREE.Quaternion();
+    this._curvePoints = [
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+    ];
+
+    // ── Bind handlers ──
+    this._onGripDown = this._onGripDown.bind(this);
+    this._onTriggerDown = this._onTriggerDown.bind(this);
+    this._onTriggerUp = this._onTriggerUp.bind(this);
+    this._onSealButton = this._onSealButton.bind(this);
+
+    this.el.sceneEl.addEventListener("loaded", () => {
+      this._resolveReferences();
+      this._attachListeners();
+      this._createHose();
+    });
+
+    this._log("Initialized");
+  },
+
+  // ─── References ───────────────────────────────────────────────────
+
+  _resolveReferences: function () {
+    this.worldExtinguisher = document.querySelector("#extinguisher-world");
+    this.handExtinguisher = document.querySelector("#extinguisher-hand");
+    this.sealEntity = document.querySelector("#extintor-hand-seal");
+    this.foamEntity = document.querySelector("#foam-nozzle");
+    this.hoseAnchor = document.querySelector("#hose-anchor");
+
+    if (this.handExtinguisher) {
+      this.handExtinguisher.setAttribute("visible", false);
     }
 
-    this.setupGripDetection();
-    this.setupSealInteraction();
-    this.setupHoseVisuals();
+    const collider = document.querySelector("#extinguisher-collider");
+    if (collider) collider.classList.add("interactable");
+
+    this._log(
+      "References resolved, hoseAnchor:",
+      this.hoseAnchor ? "found" : "MISSING",
+    );
   },
 
-  setupGripDetection: function () {
-    const el = this.el;
-    const scene = el.sceneEl;
+  // ─── Listeners ────────────────────────────────────────────────────
 
-    // Grip button - segurar extintor
-    scene.addEventListener('gripdown', (e) => {
-      if (!this.data.enabled || !e.detail) return;
-      
-      this.isGripped = true;
-      const hand = e.detail.hand; // 'left' ou 'right'
-      
-      if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_CONTROLS) {
-        window.debugLog('ExtinguisherController', 'Grip detected:', hand);
-      }
-
-      // Marcar para seguir a mão no tick
-      this.gripHand = hand;
-    });
-
-    scene.addEventListener('gripup', (e) => {
-      if (!e.detail || !e.detail.hand) return;
-      if (e.detail.hand === this.gripHand) {
-        this.isGripped = false;
-        this.gripHand = null;
-      }
-    });
-
-    // Trigger - disparar foam
-    scene.addEventListener('triggerdown', (e) => {
-      if (!this.isGripped || !this.data.enabled || !e.detail) return;
-      
-      this.isSprayingActive = true;
-      this.startSpraying();
-      
-      if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_CONTROLS) {
-        window.debugLog('ExtinguisherController', 'Trigger: START SPRAYING');
-      }
-    });
-
-    scene.addEventListener('triggerup', (e) => {
-      if (!e.detail) return;
-      this.isSprayingActive = false;
-      this.stopSpraying();
-      
-      if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_CONTROLS) {
-        window.debugLog('ExtinguisherController', 'Trigger: STOP SPRAYING');
-      }
-    });
-  },
-
-  setupSealInteraction: function () {
-    const seal = this.data.sealModel;
-    if (!seal) return;
-
-    // Botão de ação (A/X no Quest) para remover lacre
-    document.addEventListener('buttonadown', () => {
-      if (!this.data.enabled || this.sealRemoved) return;
-      
-      this.removeSeal();
-    });
-
-    document.addEventListener('buttonxdown', () => {
-      if (!this.data.enabled || this.sealRemoved) return;
-      
-      this.removeSeal();
-    });
-  },
-
-  removeSeal: function () {
-    const seal = this.data.sealModel;
-    if (!seal) return;
-
-    if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_CONTROLS) {
-      window.debugLog('ExtinguisherController', 'Seal removed');
+  _attachListeners: function () {
+    // Grip on dominant hand for grab/release toggle
+    const gripCtrl = document.querySelector(
+      `#${this.data.gripHand}-hand-controller`,
+    );
+    if (!gripCtrl) {
+      console.warn("[ExtinguisherCtrl] Controller not found:", this.data.gripHand);
+      return;
     }
 
-    // Animar desaparecimento (fade out)
-    seal.setAttribute('animation__fadeout', {
-      property: 'scale',
-      from: '1 1 1',
-      to: '0.1 0.1 0.1',
-      dur: 300,
-      easing: 'easeInQuad',
-      direction: 'normal'
-    });
+    gripCtrl.addEventListener("gripdown", this._onGripDown);
 
-    seal.setAttribute('animation__opacity', {
-      property: 'material.opacity',
-      from: 1,
-      to: 0,
-      dur: 300,
-      easing: 'easeInQuad'
-    });
+    // Trigger (spray) — listen on BOTH controllers so it always works
+    const rightCtrl = document.querySelector("#right-hand-controller");
+    const leftCtrl = document.querySelector("#left-hand-controller");
 
-    // Desabilitar após animação
+    if (rightCtrl) {
+      rightCtrl.addEventListener("triggerdown", this._onTriggerDown);
+      rightCtrl.addEventListener("triggerup", this._onTriggerUp);
+      rightCtrl.addEventListener("abuttondown", this._onSealButton);
+    }
+    if (leftCtrl) {
+      leftCtrl.addEventListener("triggerdown", this._onTriggerDown);
+      leftCtrl.addEventListener("triggerup", this._onTriggerUp);
+      leftCtrl.addEventListener("xbuttondown", this._onSealButton);
+    }
+
+    this._log("Listeners attached — grip:", this.data.gripHand, "| trigger: both | seal: A/X");
+  },
+
+  // ─── Event Handlers ──────────────────────────────────────────────
+
+  /** Toggle grip: first press grabs, second press releases. */
+  _onGripDown: function () {
+    if (!this.data.enabled) return;
+
+    if (this.isHeld) {
+      this._release();
+      return;
+    }
+
+    // Check raycaster aim
+    const gripCtrl = document.querySelector(
+      `#${this.data.gripHand}-hand-controller`,
+    );
+    if (!gripCtrl) return;
+
+    const raycaster = gripCtrl.components.raycaster;
+    if (raycaster) {
+      const hitsCollider = raycaster.intersections.some(
+        (i) =>
+          i.object.el &&
+          (i.object.el.id === "extinguisher-collider" ||
+            i.object.el.closest("#extinguisher-world")),
+      );
+      if (!hitsCollider) {
+        this._log("Grip pressed but not aiming at extinguisher");
+        return;
+      }
+    }
+
+    this._grab();
+  },
+
+  _onTriggerDown: function () {
+    this._log("TriggerDown — isHeld:", this.isHeld, "sealRemoved:", this.sealRemoved, "enabled:", this.data.enabled);
+    if (!this.isHeld || !this.data.enabled) return;
+    if (!this.sealRemoved) {
+      this._log("Cannot spray — seal not removed yet! Press A or X first.");
+      return;
+    }
+    this._startSpray();
+  },
+
+  _onTriggerUp: function () {
+    if (!this.isSpraying) return;
+    this._stopSpray();
+  },
+
+  _onSealButton: function () {
+    this._log("SealButton — isHeld:", this.isHeld, "sealRemoved:", this.sealRemoved);
+    if (!this.isHeld || !this.data.enabled || this.sealRemoved) return;
+    this._removeSeal();
+  },
+
+  // ─── Core Actions ─────────────────────────────────────────────────
+
+  _grab: function () {
+    this.isHeld = true;
+    if (this.worldExtinguisher) this.worldExtinguisher.setAttribute("visible", false);
+    if (this.handExtinguisher) this.handExtinguisher.setAttribute("visible", true);
+    if (this.hoseEntity) this.hoseEntity.setAttribute("visible", true);
+
+    this._haptic(this.data.gripHand, 0.4, 100);
+    this._log("Grabbed (toggle ON)");
+    this.el.sceneEl.emit("extinguisher-grabbed");
+  },
+
+  _release: function () {
+    this.isHeld = false;
+    if (this.isSpraying) this._stopSpray();
+    if (this.worldExtinguisher) this.worldExtinguisher.setAttribute("visible", true);
+    if (this.handExtinguisher) this.handExtinguisher.setAttribute("visible", false);
+    if (this.hoseEntity) this.hoseEntity.setAttribute("visible", false);
+
+    this._haptic(this.data.gripHand, 0.2, 50);
+    this._log("Released (toggle OFF)");
+    this.el.sceneEl.emit("extinguisher-released");
+  },
+
+  _removeSeal: function () {
+    if (!this.sealEntity) return;
+    this.sealEntity.setAttribute("animation__fadeout", {
+      property: "scale",
+      from: "1 1 1",
+      to: "0.01 0.01 0.01",
+      dur: 300,
+      easing: "easeInQuad",
+    });
     setTimeout(() => {
-      seal.setAttribute('visible', 'false');
+      this.sealEntity.setAttribute("visible", false);
       this.sealRemoved = true;
-      
-      // Emitir evento para training state
-      this.el.sceneEl.emit('extinguisher-seal-removed');
+      this.el.sceneEl.emit("extinguisher-seal-removed");
+      this._haptic(this.data.gripHand, 0.6, 150);
+      this._log("Seal removed");
     }, 300);
   },
 
-  setupHoseVisuals: function () {
-    const hose = this.data.hoseModel;
-    if (!hose) {
-      // Se não tiver modelo de mangueira, criar uma visualmente
-      const hoseGeometry = new THREE.TubeGeometry(
-        new THREE.LineCurve3(
-          new THREE.Vector3(0, 0, 0),
-          new THREE.Vector3(0, 0, 0.5)
-        ),
-        8, 0.015, 6, false
-      );
-
-      const hoseMaterial = new THREE.MeshStandardMaterial({
-        color: 0xFFAA00,
-        metalness: 0.2,
-        roughness: 0.8
-      });
-
-      this.hoseMesh = new THREE.Mesh(hoseGeometry, hoseMaterial);
-      this.el.object3D.add(this.hoseMesh);
+  _startSpray: function () {
+    this.isSpraying = true;
+    if (this.foamEntity && this.foamEntity.components.foam) {
+      this.foamEntity.components.foam.start();
+      this._log("Spraying started — foam.start() called");
     } else {
-      this.hoseMesh = hose.object3D;
+      console.warn("[ExtinguisherCtrl] Foam entity or component not found!",
+        "foamEntity:", !!this.foamEntity,
+        "foam component:", this.foamEntity ? !!this.foamEntity.components.foam : "N/A");
     }
   },
 
-  tick: function (time, timeDelta) {
-    if (!this.data.enabled) return;
-
-    // 1. Corpo segue mão se gripado
-    if (this.isGripped && this.gripHand) {
-      this.followHand();
+  _stopSpray: function () {
+    this.isSpraying = false;
+    if (this.foamEntity && this.foamEntity.components.foam) {
+      this.foamEntity.components.foam.stop();
     }
-
-    // 2. Atualizar mangueira (sempre)
-    if (this.hoseMesh && this.sealRemoved) {
-      this.updateHoseDynamics();
-    }
+    this._log("Spraying stopped");
   },
 
-  followHand: function () {
-    const hand = document.querySelector(`#${this.gripHand}-hand-controller`);
-    if (!hand) return;
+  // ─── Hose (Spline TubeGeometry — single draw call) ────────────────
 
-    // Corpo segue a posição e rotação da mão
-    this.el.object3D.position.copy(hand.object3D.position);
-    this.el.object3D.quaternion.copy(hand.object3D.quaternion);
-
-    // Ajustar posição relativa (como se estivesse na mão)
-    const offset = new THREE.Vector3(0, -0.1, -0.05);
-    offset.applyQuaternion(this.el.object3D.quaternion);
-    this.el.object3D.position.add(offset);
-  },
-
-  updateHoseDynamics: function () {
-    if (!this.hoseMesh) return;
-
-    // Ponto de início: nozzle do corpo
-    const nozzleOffset = new THREE.Vector3(0, -0.05, 0.3);
-    nozzleOffset.applyQuaternion(this.el.object3D.quaternion);
-    this.bodyWorldPos.copy(this.el.object3D.position).add(nozzleOffset);
-
-    // Ponto de fim: posição da outra mão (ou câmera se só uma mão)
-    const otherHand = this.gripHand === 'right' ? 'left' : 'right';
-    const otherHandController = document.querySelector(`#${otherHand}-hand-controller`);
-
-    if (otherHandController) {
-      this.hoseEndWorldPos.copy(otherHandController.object3D.position);
-    } else {
-      // Se não tiver outra mão, apontar para frente
-      const camera = document.querySelector('[camera]');
-      if (camera) {
-        const forward = new THREE.Vector3(0, 0, -1);
-        forward.applyQuaternion(camera.object3D.quaternion);
-        forward.multiplyScalar(2);
-        this.hoseEndWorldPos.copy(camera.object3D.position).add(forward);
-      }
-    }
-
-    // Criar curva com sag natural (gravidade)
-    const midPoint = new THREE.Vector3()
-      .addVectors(this.bodyWorldPos, this.hoseEndWorldPos)
-      .multiplyScalar(0.5);
-    
-    midPoint.y -= 0.15; // Sag pela gravidade
-
-    const curve = new THREE.CatmullRomCurve3([
-      this.bodyWorldPos,
-      midPoint,
-      this.hoseEndWorldPos
+  /**
+   * Create the hose as an A-Frame entity wrapping a Three.js TubeGeometry mesh.
+   * Visible in A-Frame Inspector as #extinguisher-hose.
+   * The geometry is rebuilt each frame — it's tiny (16×6 verts) so the cost
+   * is negligible compared to the rest of the VR render pipeline.
+   */
+  _createHose: function () {
+    // Dummy initial geometry (will be replaced in first tick)
+    const dummyCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, -0.2, 0),
+      new THREE.Vector3(0, -0.3, -0.1),
+      new THREE.Vector3(0, -0.4, -0.2),
     ]);
+    const geom = new THREE.TubeGeometry(
+      dummyCurve,
+      this.data.hoseTubularSegments,
+      this.data.hoseRadius,
+      this.data.hoseRadialSegments,
+      false,
+    );
 
-    // Atualizar geometria (descartar anterior)
-    if (this.hoseMesh.geometry) {
-      this.hoseMesh.geometry.dispose();
-    }
+    this._hoseMesh = new THREE.Mesh(geom, this._hoseMaterial);
+    this._hoseMesh.frustumCulled = false;
 
-    this.hoseMesh.geometry = new THREE.TubeGeometry(curve, 10, 0.015, 6, false);
+    // Wrap in A-Frame entity so it appears in the Inspector
+    this.hoseEntity = document.createElement("a-entity");
+    this.hoseEntity.id = "extinguisher-hose";
+    this.hoseEntity.setAttribute("visible", false);
+    this.hoseEntity.classList.add("hose");
+    this.el.sceneEl.appendChild(this.hoseEntity);
+
+    // Append the Three.js mesh to the entity's Object3D
+    this.hoseEntity.object3D.add(this._hoseMesh);
+
+    this._log("Hose spline mesh created");
   },
 
-  startSpraying: function () {
-    const foam = document.querySelector('#foam-nozzle');
-    if (!foam || !foam.components.foam) return;
+  // ─── Tick ─────────────────────────────────────────────────────────
 
-    // Atualizar posição do foam para ponta da mangueira
-    foam.object3D.position.copy(this.hoseEndWorldPos);
+  tick: function () {
+    if (!this.data.enabled || !this.isHeld) return;
 
-    // Disparar foam
-    if (!foam.components.foam.emitting) {
-      foam.components.foam.start();
+    // 1. Hose start: world position of the anchor entity on the body
+    if (this.hoseAnchor) {
+      this.hoseAnchor.object3D.updateMatrixWorld(true);
+      this.hoseAnchor.object3D.getWorldPosition(this._anchorWorld);
+    }
+
+    // 2. Hose end: other hand world position
+    const otherHand = this.data.gripHand === "right" ? "left" : "right";
+    const otherCtrl = document.querySelector(`#${otherHand}-hand-controller`);
+    if (otherCtrl) {
+      otherCtrl.object3D.getWorldPosition(this._otherHandWorld);
+    } else {
+      this._otherHandWorld.copy(this._anchorWorld);
+      this._otherHandWorld.y -= 0.4;
+    }
+
+    // 3. Rebuild hose spline
+    this._updateHose();
+
+    // 4. Orient foam at hose tip along spline tangent
+    this._updateFoamNozzle();
+  },
+
+  /**
+   * Rebuild TubeGeometry along a 4-point CatmullRom spline.
+   * Points: anchor → mid1 (sag near body) → mid2 (sag near hand) → otherHand
+   * The two intermediate points create a natural gravity droop.
+   */
+  _updateHose: function () {
+    if (!this._hoseMesh) return;
+
+    const a = this._anchorWorld;
+    const b = this._otherHandWorld;
+    const dist = a.distanceTo(b);
+    const sag = Math.max(0.06, dist * 0.2);
+
+    // Two intermediate points at 1/3 and 2/3 with gravity sag
+    this._mid1.lerpVectors(a, b, 0.33);
+    this._mid1.y -= sag;
+    this._mid2.lerpVectors(a, b, 0.66);
+    this._mid2.y -= sag * 1.2; // slightly more sag towards the hand
+
+    // Reuse pre-allocated vectors for the curve
+    this._curvePoints[0].copy(a);
+    this._curvePoints[1].copy(this._mid1);
+    this._curvePoints[2].copy(this._mid2);
+    this._curvePoints[3].copy(b);
+
+    const curve = new THREE.CatmullRomCurve3(this._curvePoints);
+
+    // Dispose old geometry, create new
+    if (this._hoseMesh.geometry) this._hoseMesh.geometry.dispose();
+    this._hoseMesh.geometry = new THREE.TubeGeometry(
+      curve,
+      this.data.hoseTubularSegments,
+      this.data.hoseRadius,
+      this.data.hoseRadialSegments,
+      false,
+    );
+
+    // Store tangent at end for foam orientation
+    this._tangent.copy(curve.getTangentAt(1.0));
+  },
+
+  /**
+   * Orient foam nozzle along the spline's end tangent.
+   * Foam component shoots along local -Z, so we align -Z with the tangent.
+   */
+  _updateFoamNozzle: function () {
+    if (!this.foamEntity) return;
+
+    // The tangent at t=1 gives the exact hose direction at the tip
+    this._foamQuat.setFromUnitVectors(
+      new THREE.Vector3(0, 0, -1),
+      this._tangent,
+    );
+
+    // Convert world quaternion → local quaternion relative to parent
+    if (this.foamEntity.parentEl) {
+      this.foamEntity.parentEl.object3D.updateMatrixWorld(true);
+      const parentQuatInv = this.foamEntity.parentEl.object3D.quaternion
+        .clone()
+        .invert();
+      this._foamQuat.premultiply(parentQuatInv);
+    }
+
+    this.foamEntity.object3D.quaternion.copy(this._foamQuat);
+  },
+
+  // ─── Utilities ────────────────────────────────────────────────────
+
+  _haptic: function (hand, intensity, duration) {
+    const ctrl = document.querySelector(`#${hand}-hand-controller`);
+    if (!ctrl) return;
+    const gp =
+      ctrl.components["tracked-controls"] &&
+      ctrl.components["tracked-controls"].controller &&
+      ctrl.components["tracked-controls"].controller.gamepad;
+    if (gp && gp.hapticActuators && gp.hapticActuators[0]) {
+      gp.hapticActuators[0].pulse(intensity, duration);
     }
   },
 
-  stopSpraying: function () {
-    const foam = document.querySelector('#foam-nozzle');
-    if (!foam || !foam.components.foam) return;
-
-    foam.components.foam.stop();
+  _log: function (...args) {
+    if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_CONTROLS) {
+      window.debugLog("ExtinguisherCtrl", ...args);
+    }
   },
 
   setEnabled: function (enabled) {
     this.data.enabled = enabled;
-    
-    if (window.DEBUG_CONFIG && window.DEBUG_CONFIG.LOG_CONTROLS) {
-      window.debugLog('ExtinguisherController', 'Enabled:', enabled);
+    if (!enabled && this.isHeld) this._release();
+    this._log("Enabled:", enabled);
+  },
+
+  remove: function () {
+    const gripCtrl = document.querySelector(
+      `#${this.data.gripHand}-hand-controller`,
+    );
+    if (gripCtrl) {
+      gripCtrl.removeEventListener("gripdown", this._onGripDown);
     }
-  }
+
+    // Remove trigger/seal listeners from both controllers
+    const rightCtrl = document.querySelector("#right-hand-controller");
+    const leftCtrl = document.querySelector("#left-hand-controller");
+    if (rightCtrl) {
+      rightCtrl.removeEventListener("triggerdown", this._onTriggerDown);
+      rightCtrl.removeEventListener("triggerup", this._onTriggerUp);
+    }
+    if (leftCtrl) {
+      leftCtrl.removeEventListener("triggerdown", this._onTriggerDown);
+      leftCtrl.removeEventListener("triggerup", this._onTriggerUp);
+    }
+
+    if (this._hoseMesh) {
+      if (this._hoseMesh.geometry) this._hoseMesh.geometry.dispose();
+      this._hoseMaterial.dispose();
+    }
+    if (this.hoseEntity && this.hoseEntity.parentNode) {
+      this.hoseEntity.parentNode.removeChild(this.hoseEntity);
+    }
+  },
 });
