@@ -1,4 +1,4 @@
-AFRAME.registerComponent('lod-model', {
+AFRAME.registerComponent('lod-loader', {
   schema: {
     high: { type: 'string' }, // e.g. #model-hangar
     low: { type: 'string' },  // e.g. /assets/hangar_low.glb

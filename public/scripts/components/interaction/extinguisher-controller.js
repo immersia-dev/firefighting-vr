@@ -8,14 +8,14 @@
  *   - Hidden hand extinguisher: pre-attached to dominant hand, invisible until grabbed
  *   - Hose anchor (#hose-anchor): child of body model, marks where the hose exits the body
  *   - Hose: single TubeGeometry spline from anchor → other hand (1 draw call)
- *   - Foam nozzle: at hose tip, oriented along last tangent of the spline
+ *   - Foam nozzle: child of other-hand controller, yaw-only (forward)
  *
  * FLOW:
  *   1. Aim raycaster at extinguisher collider
  *   2. Grip once → snap to hand (toggle — no need to hold)
  *   3. A/X removes safety seal
  *   4. Trigger to spray foam from hose tip
- *   5. Grip again → release back to world position
+ *   5. Release is disabled after grab (training mode)
  */
 
 AFRAME.registerComponent("extinguisher-controller", {
@@ -25,6 +25,11 @@ AFRAME.registerComponent("extinguisher-controller", {
     hoseTubularSegments: { type: "int", default: 16 },
     hoseRadialSegments: { type: "int", default: 6 },
     hoseRadius: { type: "number", default: 0.012 },
+    hoseExitLength: { type: "number", default: 0.08 },
+    hoseExitDir: { type: "vec3", default: { x: -1, y: 0, z: 0 } },
+    hoseTipLength: { type: "number", default: 0.005 },
+    hoseTipDir: { type: "vec3", default: { x: 0, y: 0, z: -1 } },
+    requireSeal: { type: "boolean", default: false },
   },
 
   init: function () {
@@ -57,11 +62,24 @@ AFRAME.registerComponent("extinguisher-controller", {
     this._tangent = new THREE.Vector3();
     this._hoseDir = new THREE.Vector3();
     this._foamQuat = new THREE.Quaternion();
+    this._negZ = new THREE.Vector3(0, 0, -1); // constant for foam orientation
+    this._anchorQuat = new THREE.Quaternion();
+    this._anchorForward = new THREE.Vector3();
+    this._exitDir = new THREE.Vector3(); // normalized exit direction in local space
+    this._tipDir = new THREE.Vector3();   // normalized tip direction (nozzle end)
+    this._tipForward = new THREE.Vector3();
+    this._flowDir = new THREE.Vector3();  // natural hose flow direction (body → hand)
+    this._nozzleQuat = new THREE.Quaternion();
+    this._parentQuat = new THREE.Quaternion();
+    this._parentQuatInv = new THREE.Quaternion();
+    this._foamEuler = new THREE.Euler(0, 0, 0, "YXZ");
     this._curvePoints = [
-      new THREE.Vector3(),
-      new THREE.Vector3(),
-      new THREE.Vector3(),
-      new THREE.Vector3(),
+      new THREE.Vector3(), // 0: anchor
+      new THREE.Vector3(), // 1: exit (anchor + exitDir * exitLen)
+      new THREE.Vector3(), // 2: mid1 (sag)
+      new THREE.Vector3(), // 3: mid2 (sag)
+      new THREE.Vector3(), // 4: tip entry (nozzle - tipDir * tipLen)
+      new THREE.Vector3(), // 5: nozzle
     ];
 
     // ── Bind handlers ──
@@ -69,6 +87,12 @@ AFRAME.registerComponent("extinguisher-controller", {
     this._onTriggerDown = this._onTriggerDown.bind(this);
     this._onTriggerUp = this._onTriggerUp.bind(this);
     this._onSealButton = this._onSealButton.bind(this);
+
+    // Cached controller references (resolved after scene loads)
+    this._gripCtrl = null;
+    this._otherCtrl = null;
+    this._rightCtrl = null;
+    this._leftCtrl = null;
 
     this.el.sceneEl.addEventListener("loaded", () => {
       this._resolveReferences();
@@ -104,7 +128,6 @@ AFRAME.registerComponent("extinguisher-controller", {
   // ─── Listeners ────────────────────────────────────────────────────
 
   _attachListeners: function () {
-    // Grip on dominant hand for grab/release toggle
     const gripCtrl = document.querySelector(
       `#${this.data.gripHand}-hand-controller`,
     );
@@ -112,22 +135,26 @@ AFRAME.registerComponent("extinguisher-controller", {
       console.warn("[ExtinguisherCtrl] Controller not found:", this.data.gripHand);
       return;
     }
-
+    this._gripCtrl = gripCtrl;
     gripCtrl.addEventListener("gripdown", this._onGripDown);
 
-    // Trigger (spray) — listen on BOTH controllers so it always works
-    const rightCtrl = document.querySelector("#right-hand-controller");
-    const leftCtrl = document.querySelector("#left-hand-controller");
+    // Cache both controllers for trigger/seal listeners
+    this._rightCtrl = document.querySelector("#right-hand-controller");
+    this._leftCtrl = document.querySelector("#left-hand-controller");
 
-    if (rightCtrl) {
-      rightCtrl.addEventListener("triggerdown", this._onTriggerDown);
-      rightCtrl.addEventListener("triggerup", this._onTriggerUp);
-      rightCtrl.addEventListener("abuttondown", this._onSealButton);
+    // Determine other hand controller for hose target
+    const otherHand = this.data.gripHand === "right" ? "left" : "right";
+    this._otherCtrl = document.querySelector(`#${otherHand}-hand-controller`);
+
+    if (this._rightCtrl) {
+      this._rightCtrl.addEventListener("triggerdown", this._onTriggerDown);
+      this._rightCtrl.addEventListener("triggerup", this._onTriggerUp);
+      this._rightCtrl.addEventListener("abuttondown", this._onSealButton);
     }
-    if (leftCtrl) {
-      leftCtrl.addEventListener("triggerdown", this._onTriggerDown);
-      leftCtrl.addEventListener("triggerup", this._onTriggerUp);
-      leftCtrl.addEventListener("xbuttondown", this._onSealButton);
+    if (this._leftCtrl) {
+      this._leftCtrl.addEventListener("triggerdown", this._onTriggerDown);
+      this._leftCtrl.addEventListener("triggerup", this._onTriggerUp);
+      this._leftCtrl.addEventListener("xbuttondown", this._onSealButton);
     }
 
     this._log("Listeners attached — grip:", this.data.gripHand, "| trigger: both | seal: A/X");
@@ -140,17 +167,14 @@ AFRAME.registerComponent("extinguisher-controller", {
     if (!this.data.enabled) return;
 
     if (this.isHeld) {
-      this._release();
+      this._log("Grip pressed while held — release disabled");
       return;
     }
 
     // Check raycaster aim
-    const gripCtrl = document.querySelector(
-      `#${this.data.gripHand}-hand-controller`,
-    );
-    if (!gripCtrl) return;
+    if (!this._gripCtrl) return;
 
-    const raycaster = gripCtrl.components.raycaster;
+    const raycaster = this._gripCtrl.components.raycaster;
     if (raycaster) {
       const hitsCollider = raycaster.intersections.some(
         (i) =>
@@ -170,7 +194,7 @@ AFRAME.registerComponent("extinguisher-controller", {
   _onTriggerDown: function () {
     this._log("TriggerDown — isHeld:", this.isHeld, "sealRemoved:", this.sealRemoved, "enabled:", this.data.enabled);
     if (!this.isHeld || !this.data.enabled) return;
-    if (!this.sealRemoved) {
+    if (this.data.requireSeal && !this.sealRemoved) {
       this._log("Cannot spray — seal not removed yet! Press A or X first.");
       return;
     }
@@ -233,20 +257,20 @@ AFRAME.registerComponent("extinguisher-controller", {
 
   _startSpray: function () {
     this.isSpraying = true;
-    if (this.foamEntity && this.foamEntity.components.foam) {
-      this.foamEntity.components.foam.start();
-      this._log("Spraying started — foam.start() called");
+    if (this.foamEntity && this.foamEntity.components["foam-system"]) {
+      this.foamEntity.components["foam-system"].start();
+      this._log("Spraying started — foam-system.start() called");
     } else {
       console.warn("[ExtinguisherCtrl] Foam entity or component not found!",
         "foamEntity:", !!this.foamEntity,
-        "foam component:", this.foamEntity ? !!this.foamEntity.components.foam : "N/A");
+        "foam-system:", this.foamEntity ? !!this.foamEntity.components["foam-system"] : "N/A");
     }
   },
 
   _stopSpray: function () {
     this.isSpraying = false;
-    if (this.foamEntity && this.foamEntity.components.foam) {
-      this.foamEntity.components.foam.stop();
+    if (this.foamEntity && this.foamEntity.components["foam-system"]) {
+      this.foamEntity.components["foam-system"].stop();
     }
     this._log("Spraying stopped");
   },
@@ -300,13 +324,22 @@ AFRAME.registerComponent("extinguisher-controller", {
     if (this.hoseAnchor) {
       this.hoseAnchor.object3D.updateMatrixWorld(true);
       this.hoseAnchor.object3D.getWorldPosition(this._anchorWorld);
+      this.hoseAnchor.object3D.getWorldQuaternion(this._anchorQuat);
+      // Exit direction: configurable local direction rotated to world space
+      const d = this.data.hoseExitDir;
+      this._exitDir.set(d.x, d.y, d.z).normalize();
+      this._anchorForward.copy(this._exitDir).applyQuaternion(this._anchorQuat);
     }
 
-    // 2. Hose end: other hand world position
-    const otherHand = this.data.gripHand === "right" ? "left" : "right";
-    const otherCtrl = document.querySelector(`#${otherHand}-hand-controller`);
-    if (otherCtrl) {
-      otherCtrl.object3D.getWorldPosition(this._otherHandWorld);
+    // 2. Hose end: foam nozzle world position (NOT the controller origin)
+    if (this.foamEntity) {
+      this.foamEntity.object3D.updateMatrixWorld(true);
+      this.foamEntity.object3D.getWorldPosition(this._otherHandWorld);
+      // Tip direction: controller's actual forward (-Z), same as raycaster
+      this.foamEntity.parentEl.object3D.getWorldQuaternion(this._nozzleQuat);
+      this._tipForward.set(0, 0, -1).applyQuaternion(this._nozzleQuat);
+    } else if (this._otherCtrl) {
+      this._otherCtrl.object3D.getWorldPosition(this._otherHandWorld);
     } else {
       this._otherHandWorld.copy(this._anchorWorld);
       this._otherHandWorld.y -= 0.4;
@@ -320,29 +353,41 @@ AFRAME.registerComponent("extinguisher-controller", {
   },
 
   /**
-   * Rebuild TubeGeometry along a 4-point CatmullRom spline.
-   * Points: anchor → mid1 (sag near body) → mid2 (sag near hand) → otherHand
-   * The two intermediate points create a natural gravity droop.
+   * Rebuild TubeGeometry along a 6-point CatmullRom spline.
+   * Points: anchor → exit → mid1 (sag) → mid2 (sag) → tipEntry → nozzle
+   * The exit/tipEntry segments ensure the hose leaves straight from both ends.
    */
   _updateHose: function () {
     if (!this._hoseMesh) return;
 
     const a = this._anchorWorld;
     const b = this._otherHandWorld;
-    const dist = a.distanceTo(b);
+
+    // Short exit segment along the anchor's configurable direction
+    const exitLen = this.data.hoseExitLength;
+    const exitPoint = this._curvePoints[1];
+    exitPoint.copy(a).addScaledVector(this._anchorForward, exitLen);
+
+    // Short tip entry segment along the controller's forward direction
+    // This makes the hose tip always point same direction as the raycaster
+    const tipLen = this.data.hoseTipLength;
+    const tipEntry = this._curvePoints[4];
+    tipEntry.copy(b).addScaledVector(this._tipForward, -tipLen);
+
+    // Two intermediate points between exit and tipEntry with gravity sag
+    const dist = exitPoint.distanceTo(tipEntry);
     const sag = Math.max(0.06, dist * 0.2);
 
-    // Two intermediate points at 1/3 and 2/3 with gravity sag
-    this._mid1.lerpVectors(a, b, 0.33);
+    this._mid1.lerpVectors(exitPoint, tipEntry, 0.33);
     this._mid1.y -= sag;
-    this._mid2.lerpVectors(a, b, 0.66);
-    this._mid2.y -= sag * 1.2; // slightly more sag towards the hand
+    this._mid2.lerpVectors(exitPoint, tipEntry, 0.66);
+    this._mid2.y -= sag * 1.2;
 
     // Reuse pre-allocated vectors for the curve
     this._curvePoints[0].copy(a);
-    this._curvePoints[1].copy(this._mid1);
-    this._curvePoints[2].copy(this._mid2);
-    this._curvePoints[3].copy(b);
+    this._curvePoints[2].copy(this._mid1);
+    this._curvePoints[3].copy(this._mid2);
+    this._curvePoints[5].copy(b);
 
     const curve = new THREE.CatmullRomCurve3(this._curvePoints);
 
@@ -361,28 +406,12 @@ AFRAME.registerComponent("extinguisher-controller", {
   },
 
   /**
-   * Orient foam nozzle along the spline's end tangent.
-   * Foam component shoots along local -Z, so we align -Z with the tangent.
+   * Keep foam nozzle aligned with the controller (identity quaternion).
+   * The foam sprays along the controller's -Z, same direction as the raycaster.
    */
   _updateFoamNozzle: function () {
     if (!this.foamEntity) return;
-
-    // The tangent at t=1 gives the exact hose direction at the tip
-    this._foamQuat.setFromUnitVectors(
-      new THREE.Vector3(0, 0, -1),
-      this._tangent,
-    );
-
-    // Convert world quaternion → local quaternion relative to parent
-    if (this.foamEntity.parentEl) {
-      this.foamEntity.parentEl.object3D.updateMatrixWorld(true);
-      const parentQuatInv = this.foamEntity.parentEl.object3D.quaternion
-        .clone()
-        .invert();
-      this._foamQuat.premultiply(parentQuatInv);
-    }
-
-    this.foamEntity.object3D.quaternion.copy(this._foamQuat);
+    this.foamEntity.object3D.quaternion.identity();
   },
 
   // ─── Utilities ────────────────────────────────────────────────────
@@ -412,23 +441,17 @@ AFRAME.registerComponent("extinguisher-controller", {
   },
 
   remove: function () {
-    const gripCtrl = document.querySelector(
-      `#${this.data.gripHand}-hand-controller`,
-    );
-    if (gripCtrl) {
-      gripCtrl.removeEventListener("gripdown", this._onGripDown);
+    if (this._gripCtrl) {
+      this._gripCtrl.removeEventListener("gripdown", this._onGripDown);
     }
 
-    // Remove trigger/seal listeners from both controllers
-    const rightCtrl = document.querySelector("#right-hand-controller");
-    const leftCtrl = document.querySelector("#left-hand-controller");
-    if (rightCtrl) {
-      rightCtrl.removeEventListener("triggerdown", this._onTriggerDown);
-      rightCtrl.removeEventListener("triggerup", this._onTriggerUp);
+    if (this._rightCtrl) {
+      this._rightCtrl.removeEventListener("triggerdown", this._onTriggerDown);
+      this._rightCtrl.removeEventListener("triggerup", this._onTriggerUp);
     }
-    if (leftCtrl) {
-      leftCtrl.removeEventListener("triggerdown", this._onTriggerDown);
-      leftCtrl.removeEventListener("triggerup", this._onTriggerUp);
+    if (this._leftCtrl) {
+      this._leftCtrl.removeEventListener("triggerdown", this._onTriggerDown);
+      this._leftCtrl.removeEventListener("triggerup", this._onTriggerUp);
     }
 
     if (this._hoseMesh) {

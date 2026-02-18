@@ -59,7 +59,7 @@ function getLinearSpline(lerp) {
   return { addPoint, getValueAt };
 }
 
-AFRAME.registerComponent("fire", {
+AFRAME.registerComponent("fire-system", {
   schema: {
     fireRate: { type: "number", default: 75.0 },
     smokeRate: { type: "number", default: 35.0 },
@@ -330,9 +330,9 @@ AFRAME.registerComponent("fire", {
   _checkFoamSuppression(dt) {
     // Find foam nozzle in scene
     const foamNozzle = document.querySelector("#foam-nozzle");
-    if (!foamNozzle || !foamNozzle.components.foam) return;
+    if (!foamNozzle || !foamNozzle.components["foam-system"]) return;
 
-    const foamComp = foamNozzle.components.foam;
+    const foamComp = foamNozzle.components["foam-system"];
     if (!foamComp.emitting) return;
 
     const firePos = this.el.object3D.getWorldPosition(new THREE.Vector3());

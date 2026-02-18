@@ -1,23 +1,36 @@
+/**
+ * Foam Particle System Component
+ *
+ * GPU-accelerated foam spray using custom GLSL shaders.
+ * Can be attached to any entity — sprays along local -Z axis.
+ *
+ * API:
+ *   component.start()  — begin emitting particles
+ *   component.stop()   — stop emitting (existing particles finish)
+ *
+ * HTML attribute names match schema 1:1:
+ *   foam="texture: #foam-texture; rate: 60; maxParticles: 300; speed: 6; particleSize: 0.08"
+ */
+
 AFRAME.registerComponent("foam", {
   schema: {
     autoStart: { type: "boolean", default: false },
     rate: { type: "number", default: 250 },
-    capacity: { type: "int", default: 500 },
+    maxParticles: { type: "int", default: 500 },
     jetLength: { type: "number", default: 4.0 },
     jetRadius: { type: "number", default: 0.12 },
     speed: { type: "number", default: 8.0 },
     spread: { type: "number", default: 0.08 },
     life: { type: "number", default: 0.8 },
-    sizeMin: { type: "number", default: 0.1 },
-    sizeMax: { type: "number", default: 0.22 },
+    particleSize: { type: "number", default: 0.15 },
     gravity: { type: "number", default: -5.0 },
     drag: { type: "number", default: 2.5 },
-    foamTexture: { type: "string", default: "" },
+    texture: { type: "string", default: "" },
   },
 
   init() {
     this.emitting = this.data.autoStart;
-    const cap = this.data.capacity;
+    const cap = this.data.maxParticles;
 
     this.particles = new Array(cap).fill(null).map(() => ({
       active: false,
@@ -117,11 +130,7 @@ AFRAME.registerComponent("foam", {
 
       slot.life = this.data.life * (0.8 + Math.random() * 0.4);
       slot.maxLife = slot.life;
-      slot.size = THREE.MathUtils.lerp(
-        this.data.sizeMin,
-        this.data.sizeMax,
-        Math.random(),
-      );
+      slot.size = this.data.particleSize * (0.7 + Math.random() * 0.6);
       slot.angle = Math.random() * Math.PI * 2;
       slot.active = true;
       this.activeCount++;
@@ -195,9 +204,16 @@ AFRAME.registerComponent("foam", {
   },
 
   _makeMaterial() {
-    const tex = this.data.foamTexture
-      ? new THREE.TextureLoader().load(this.data.foamTexture)
-      : this._makeTexture();
+    let tex;
+    if (this.data.texture) {
+      // Support both "#id" asset references and direct URLs
+      const ref = this.data.texture;
+      const assetEl = ref.startsWith("#") ? document.querySelector(ref) : null;
+      const src = assetEl ? assetEl.getAttribute("src") || assetEl.src : ref;
+      tex = new THREE.TextureLoader().load(src);
+    } else {
+      tex = this._makeTexture();
+    }
 
     const uniforms = {
       diffuseTexture: { value: tex },

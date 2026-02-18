@@ -1,7 +1,7 @@
 {
-  "name": "vet-anatomy",
+  "name": "firefighting-vr",
   "version": "0.1.0",
-  "description": "Interactive VR anatomy training module for veterinary studies using A-Frame.",
+  "description": "Simulador VR de combate a incêndio com extintor — treinamento imersivo usando A-Frame.",
   "private": true,
   "scripts": {
     "dev": "vite --host",

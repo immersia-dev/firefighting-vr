@@ -1,11 +1,13 @@
 /**
- * Training Manager - Orquestra todo o fluxo de treinamento
- * Controla: Painéis Interativos → Liberação de Movimento → Tutorial HUD
+ * Training Manager — orchestrates the entire training flow.
+ * Controls: Interactive Panels → Movement Unlock → Tutorial HUD
  *
  * In dev mode (DEBUG_CONFIG.DEV_MODE = true):
  *   - Skips intro panel, unlocks movement immediately
  *   - State machine is available but does not auto-advance
  *   - Use console helpers: window.trainingDev.forward() / .back() / .goTo('suppress')
+ *
+ * Depends on: interactive-panels, tutorial-hud, training-state
  */
 
 AFRAME.registerComponent("training-manager", {
@@ -14,17 +16,15 @@ AFRAME.registerComponent("training-manager", {
   },
 
   init: function () {
-    console.log("[TrainingManager] Initializing");
+    window.debugLog("TrainingManager", "Initializing");
 
     this.scene = this.el.sceneEl;
     this.isDevMode = window.DEBUG_CONFIG && window.DEBUG_CONFIG.DEV_MODE;
 
     if (!this.data.enabled) return;
 
-    // Expose dev helpers on window for console use
     this._exposeDevHelpers();
 
-    // Aguardar scene estar pronta
     this.scene.addEventListener("loaded", () => {
       setTimeout(() => {
         if (this.isDevMode) {
@@ -37,34 +37,28 @@ AFRAME.registerComponent("training-manager", {
   },
 
   startTraining: function () {
-    console.log("[TrainingManager] Starting training flow");
+    window.debugLog("TrainingManager", "Starting training flow");
     this.showIntroPanel();
   },
 
   showIntroPanel: function () {
     const panelComponent = document.querySelector("[interactive-panels]");
     if (!panelComponent) {
-      console.warn("[TrainingManager] Interactive panels component not found");
+      window.debugWarn("TrainingManager", "Interactive panels component not found");
       return;
     }
-
     panelComponent.components["interactive-panels"].showPanel("intro", {
       toMovement: () => this.startMainTraining(),
     });
   },
 
   startMainTraining: function () {
-    console.log("[TrainingManager] Starting main training phase");
+    window.debugLog("TrainingManager", "Starting main training phase");
 
     const panelComponent = document.querySelector("[interactive-panels]");
-
-    // Limpar painel
     panelComponent.components["interactive-panels"].clearPanel();
-
-    // Liberar movimento
     panelComponent.components["interactive-panels"].unlockMovement();
 
-    // Show initial HUD message
     const hudComponent = document.querySelector("[tutorial-hud]");
     if (hudComponent && hudComponent.components["tutorial-hud"]) {
       setTimeout(() => {
@@ -81,7 +75,7 @@ AFRAME.registerComponent("training-manager", {
    */
   _startDevMode: function () {
     console.log(
-      "%c[DEV MODE] Training Manager - interaction testing mode",
+      "%c[DEV MODE] Training Manager — interaction testing mode",
       "color: #10B981; font-weight: bold; font-size: 14px",
     );
     console.log(
@@ -97,7 +91,6 @@ AFRAME.registerComponent("training-manager", {
       "color: #A855F7",
     );
 
-    // Unlock movement immediately
     const panelComponent = document.querySelector("[interactive-panels]");
     if (panelComponent) {
       panelComponent.components["interactive-panels"].unlockMovement();
@@ -106,56 +99,50 @@ AFRAME.registerComponent("training-manager", {
 
   /**
    * Expose window.trainingDev helpers for console interaction.
+   * Caches the training-state element lookup to avoid repetition (DRY).
    */
   _exposeDevHelpers: function () {
     const self = this;
+
+    /** Lookup training-state once per call — entity may be added later. */
+    function _ts() {
+      const el = document.querySelector("[training-state]");
+      return el && el.trainingState ? el.trainingState : null;
+    }
+
     window.trainingDev = {
       forward: function () {
-        const el = document.querySelector("[training-state]");
-        if (el && el.trainingState) {
-          el.trainingState.forward();
-          console.log("[DEV] State:", el.trainingState.get());
-        } else {
-          console.warn("[DEV] training-state component not found");
-        }
+        const ts = _ts();
+        if (ts) { ts.forward(); console.log("[DEV] State:", ts.get()); }
+        else { console.warn("[DEV] training-state not found"); }
       },
       back: function () {
-        const el = document.querySelector("[training-state]");
-        if (el && el.trainingState) {
-          el.trainingState.back();
-          console.log("[DEV] State:", el.trainingState.get());
-        }
+        const ts = _ts();
+        if (ts) { ts.back(); console.log("[DEV] State:", ts.get()); }
       },
       goTo: function (state) {
-        const el = document.querySelector("[training-state]");
-        if (el && el.trainingState) {
-          el.trainingState.goTo(state);
-          console.log("[DEV] State:", el.trainingState.get());
-        }
+        const ts = _ts();
+        if (ts) { ts.goTo(state); console.log("[DEV] State:", ts.get()); }
       },
       get: function () {
-        const el = document.querySelector("[training-state]");
-        if (el && el.trainingState) {
-          const state = el.trainingState.get();
-          console.log("[DEV] Current state:", state, "| Desc:", el.trainingState.getDesc());
-          return state;
+        const ts = _ts();
+        if (ts) {
+          console.log("[DEV] Current:", ts.get(), "| Desc:", ts.getDesc());
+          return ts.get();
         }
       },
       list: function () {
-        const el = document.querySelector("[training-state]");
-        if (el && el.trainingState) {
-          const all = el.trainingState.getAll();
-          const current = el.trainingState.get();
-          console.log("[DEV] States:", all.map(s => s === current ? `[${s}]` : s).join(" → "));
+        const ts = _ts();
+        if (ts) {
+          const all = ts.getAll();
+          const cur = ts.get();
+          console.log("[DEV] States:", all.map((s) => (s === cur ? `[${s}]` : s)).join(" → "));
           return all;
         }
       },
       reset: function () {
-        const el = document.querySelector("[training-state]");
-        if (el && el.trainingState) {
-          el.trainingState.reset();
-          console.log("[DEV] Reset to:", el.trainingState.get());
-        }
+        const ts = _ts();
+        if (ts) { ts.reset(); console.log("[DEV] Reset to:", ts.get()); }
       },
       showPanel: function () {
         self.showIntroPanel();

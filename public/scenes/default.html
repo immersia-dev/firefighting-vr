@@ -2,7 +2,7 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <title>Immersia VR Scene - Vet Anatomy</title>
+    <title>Immersia VR — Treinamento de Combate a Incêndio</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <script src="/scripts/lib/aframe-v1.7.1.min.js"></script>
@@ -15,7 +15,10 @@
     <script src="/scripts/components/core/text-font-setup.js"></script>
     <script src="/scripts/components/core/vr-stats.js"></script>
     <script src="/scripts/components/core/training-state.js"></script>
-    <script src="/scripts/components/core/lod-model.js"></script>
+    <script src="/scripts/components/core/lod-loader.js"></script>
+
+    <!-- UI Helpers (shared by interactive-panels + tutorial-hud) -->
+    <script src="/scripts/components/ui/ui-helpers.js"></script>
 
     <!-- UI Components -->
     <script src="/scripts/components/ui/tutorial-hud.js"></script>
@@ -23,8 +26,9 @@
     <script src="/scripts/components/ui/training-manager.js"></script>
 
     <!-- Particle Systems -->
-    <script src="/scripts/components/particles/fire.js"></script>
-    <script src="/scripts/components/particles/foam.js"></script>
+    <script src="/scripts/components/particles/fire-system.js"></script>
+    <script src="/scripts/components/particles/foam-system.js"></script>
+    <script src="/scripts/components/particles/burn-effect.js"></script>
 
     <!-- Movement Controllers -->
     <script src="/scripts/components/movement/movement-controller.js"></script>
@@ -36,98 +40,7 @@
     <!-- Scene Management -->
     <script src="/scripts/components/core/scene-manager.js"></script>
 
-    <style>
-      body {
-        margin: 0;
-        overflow: hidden;
-      }
-
-      /* Immersia background gradient (radial glows + dark base) */
-      .immersia-bg {
-        background:
-          radial-gradient(
-            900px 520px at 20% 0%,
-            rgba(42, 198, 255, 0.2),
-            transparent 55%
-          ),
-          radial-gradient(
-            760px 520px at 85% 18%,
-            rgba(217, 70, 239, 0.22),
-            transparent 58%
-          ),
-          radial-gradient(
-            900px 520px at 60% 100%,
-            rgba(124, 58, 237, 0.28),
-            transparent 60%
-          ),
-          linear-gradient(180deg, #070615 0%, #0a0820 45%, #070615 100%);
-      }
-
-      #loading-screen {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        /* Background now provided by .immersia-bg */
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        z-index: 9999;
-        transition: opacity 0.5s ease-out;
-      }
-
-      #loading-screen.fade-out {
-        opacity: 0;
-        pointer-events: none;
-      }
-
-      #loading-logo {
-        width: 280px;
-        height: auto;
-        margin-bottom: 40px;
-        animation: pulse 2s ease-in-out infinite;
-      }
-
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.8;
-          transform: scale(0.98);
-        }
-      }
-
-      .loading-spinner {
-        width: 60px;
-        height: 60px;
-        border: 4px solid rgba(255, 255, 255, 0.2);
-        border-top-color: #a855f7;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      .loading-text {
-        margin-top: 20px;
-        color: #ffffff;
-        font-family:
-          system-ui,
-          -apple-system,
-          sans-serif;
-        font-size: 16px;
-        letter-spacing: 1px;
-      }
-    </style>
+    <link rel="stylesheet" href="/scenes/loading.css" />
   </head>
 
   <body>
@@ -201,10 +114,7 @@
         ></a-asset-item>
       </a-assets>
 
-      <script>
-        // Standard VR rig - camera is the default viewport
-      </script>
-
+      <!-- VR Rig -->
       <a-entity
         id="rig"
         position="0 0 -7"
@@ -225,7 +135,8 @@
           <a-entity
             id="extinguisher-hand"
             visible="false"
-            position="0 -0.485 0.045"
+            position="0 -0.3 0.1"
+            rotation="-38 0 0"
           >
             <a-entity
               id="extintor-hand-body"
@@ -234,12 +145,12 @@
             >
               <!-- Anchor: where the hose connects to the body.
                    Adjust position in Inspector to match nozzle outlet. -->
-              <a-entity id="hose-anchor" position="0 0.3 0.05"></a-entity>
+              <a-entity id="hose-anchor" position="-0.05 0.32 0.0"></a-entity>
             </a-entity>
             <a-entity
               id="extintor-hand-seal"
               gltf-model="#model-extintor-seal"
-              position="-0.069 -0.500 -0.061"
+              position="-0.005 0.010 -0.13"
             ></a-entity>
             <!-- GLTF hose commented out — dynamic spline hose by extinguisher-controller -->
             <!--
@@ -257,11 +168,14 @@
           raycaster="enabled: true; objects: .interactable; far: 10; showLine: true"
           line="color: #ffffff; opacity: 0.4"
         >
-          <!-- Foam nozzle follows left hand (sprays from here) -->
+          <!-- Foam nozzle: child of left controller for Inspector convenience.
+               Position is a static offset relative to the hand.
+               Rotation is overridden each frame by extinguisher-controller
+               to follow the spline tip tangent direction. -->
           <a-entity
             id="foam-nozzle"
-            position="0 0 -0.05"
-            foam="texture: #foam-texture; rate: 60; speed: 6; spread: 0.15; particleSize: 0.08; maxParticles: 300"
+            position="0.015 -0.065 -0.095"
+            foam-system="autoStart: false; texture: #foam-texture; rate: 300; speed: 8; coneAngle: 6; sizeStart: 0.1; sizeEnd: 0.8; maxParticles: 1500; life: 2.5; gravity: -4; drag: 1.2; opacity: 0.65; floorY: 0; groundSpread: 2; groundDrag: 6; groundBounce: 0.03; groundSizeScale: 1.5; turbulence: 0.8; spreadGrowth: 1.5"
           ></a-entity>
         </a-entity>
 
@@ -371,14 +285,14 @@
       <!-- Extinguisher Controller (scene-level orchestrator) -->
       <a-entity
         id="extinguisher-controller"
-        extinguisher-controller="enabled: true; gripHand: right"
+        extinguisher-controller="enabled: true; gripHand: right; hoseTipLength: 0.075"
       ></a-entity>
 
       <!-- Burning Box -->
       <a-entity
         id="burning-wooden-pallet"
         position="0 0.5 -15"
-        fire="
+        fire-system="
           fireRate: 100;
           smokeRate: 2;
           ceilingSmokeRate: 35;
@@ -403,62 +317,9 @@
         ></a-entity>
       </a-entity>
 
-      <script>
-        // Component to darken object as it burns (accumulates over time, does not reverse)
-        AFRAME.registerComponent("burn-effect", {
-          schema: {
-            burnRate: { type: "number", default: 0.08 }, // burn per second while fire is active
-            minIntensity: { type: "number", default: 0.2 }, // only burn when fire is meaningfully on
-          },
-          init() {
-            this.initialColor = new THREE.Color(0x1a0f08);
-            this.burnedColor = new THREE.Color(0x000000);
-            this.initialEmissive = new THREE.Color(0x0a0503);
-            this.burnedEmissive = new THREE.Color(0x000000);
-            this.burnAmount = 0; // accumulative soot/char
-          },
-          tick(time, timeDelta) {
-            const fire = this.el.parentEl.components.fire;
-            if (!fire) return;
+      <!-- burn-effect component loaded from /scripts/components/particles/burn-effect.js -->
 
-            // Accumulate burn over time while fire is above threshold; never brighten back
-            if (fire.fireIntensity > this.data.minIntensity) {
-              this.burnAmount = Math.min(
-                1,
-                this.burnAmount + (timeDelta / 1000) * this.data.burnRate,
-              );
-            }
 
-            // Update material color progressively
-            this.el.object3D.traverse((node) => {
-              if (node.material) {
-                const mat = node.material;
-                if (!mat.userData.originalColor) {
-                  mat.userData.originalColor = mat.color
-                    ? mat.color.clone()
-                    : this.initialColor.clone();
-                  mat.userData.originalEmissive = mat.emissive
-                    ? mat.emissive.clone()
-                    : this.initialEmissive.clone();
-                }
-
-                if (mat.color) {
-                  mat.color
-                    .copy(mat.userData.originalColor)
-                    .lerp(this.burnedColor, this.burnAmount);
-                }
-                if (mat.emissive) {
-                  mat.emissive
-                    .copy(mat.userData.originalEmissive)
-                    .lerp(this.burnedEmissive, this.burnAmount);
-                }
-              }
-            });
-          },
-        });
-      </script>
-
-      <!-- Foam nozzle removed - now handled by extinguisher controller -->
 
       <!-- Ambient light provides base illumination for the entire scene -->
       <a-entity
@@ -494,10 +355,5 @@
 
       <a-sky src="#sky"></a-sky>
     </a-scene>
-
-    <script>
-      // Toggle foam test with "E" until proper extinguisher handling is wired
-      // Foam nozzle test removed - now handled by extinguisher controller
-    </script>
   </body>
 </html>

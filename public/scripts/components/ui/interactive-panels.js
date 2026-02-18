@@ -1,12 +1,16 @@
 /**
  * Interactive Panels Component
  *
- * Creates modal panels with buttons that lock player movement during interaction.
- * Uses VR raycaster to detect button clicks from controllers.
- * Panels are positioned relative to the player rig and follow camera movement.
+ * Creates modal VR panels with raycaster-driven buttons.
+ * Locks player movement while a panel is visible.
+ *
+ * Depends on: ui-helpers.js (window.UI_HELPERS)
+ *
+ * Usage:
+ *   const panels = document.querySelector("[interactive-panels]")
+ *                          .components["interactive-panels"];
+ *   panels.showPanel("intro", { toMovement: () => { … } });
  */
-
-const PANEL_MSDF_FONT = "font: /assets/fonts/Exo2-Regular-msdf.json; shader: msdf; negate: false";
 
 const PANEL_STYLE = {
   width: 2.4,
@@ -17,7 +21,6 @@ const PANEL_STYLE = {
     { w: 2.44, h: 1.24, c: "#2A2CFF", o: 0.15, z: -0.015 },
     { w: 2.4, h: 1.2, c: "#FFFFFF", o: 0.08, z: -0.02 },
   ],
-  // Text area constrained to 85% of panel width
   contentWidth: 2.0,
 };
 
@@ -25,7 +28,7 @@ AFRAME.registerComponent("interactive-panels", {
   schema: { enabled: { type: "boolean", default: true } },
 
   init: function () {
-    console.log("[InteractivePanels] Initializing");
+    window.debugLog("InteractivePanels", "Initializing");
     this.scene = this.el.sceneEl;
     this.currentPanel = null;
     this.panels = {};
@@ -87,7 +90,7 @@ AFRAME.registerComponent("interactive-panels", {
     if (!element) return;
     const action = element.getAttribute("data-panel-action");
     if (action && this.callbacks[action]) {
-      console.log("[InteractivePanels] Action:", action);
+      window.debugLog("InteractivePanels", "Action:", action);
       this.callbacks[action]();
     }
   },
@@ -105,7 +108,7 @@ AFRAME.registerComponent("interactive-panels", {
       console.warn("[InteractivePanels] Panel not found:", panelId);
       return;
     }
-    console.log("[InteractivePanels] Showing:", panelId);
+    window.debugLog("InteractivePanels", "Showing:", panelId);
     this.callbacks = callbacks || {};
     this.clearPanel();
     this.lockMovement();
@@ -127,23 +130,19 @@ AFRAME.registerComponent("interactive-panels", {
    * Creates glassmorphism effect with 3 border layers and accent lines.
    */
   _buildVisuals: function (container) {
+    const _p = window.UI_HELPERS.createPlane;
+
     // Main background
-    const bg = this._plane(PANEL_STYLE.width, PANEL_STYLE.height, "#070615", {
-      o: 0.75,
-    });
-    container.appendChild(bg);
+    container.appendChild(_p(PANEL_STYLE.width, PANEL_STYLE.height, "#070615", { o: 0.75 }));
+
     // Borders
     PANEL_STYLE.borders.forEach((b) => {
-      const border = this._plane(b.w, b.h, b.c, { o: b.o, z: b.z });
-      container.appendChild(border);
+      container.appendChild(_p(b.w, b.h, b.c, { o: b.o, z: b.z }));
     });
+
     // Accent lines
-    container.appendChild(
-      this._plane(2.4, 0.02, "#A855F7", { o: 0.5, z: 0.01, y: 0.55 }),
-    );
-    container.appendChild(
-      this._plane(2.4, 0.015, "#2A2CFF", { o: 0.3, z: 0.01, y: -0.55 }),
-    );
+    container.appendChild(_p(2.4, 0.02, "#A855F7", { o: 0.5, z: 0.01, y: 0.55 }));
+    container.appendChild(_p(2.4, 0.015, "#2A2CFF", { o: 0.3, z: 0.01, y: -0.55 }));
   },
 
   /**
@@ -185,11 +184,11 @@ AFRAME.registerComponent("interactive-panels", {
     );
     btn.classList.add("interactable");
     btn.setAttribute("data-panel-action", cfg.action);
-    btn.appendChild(this._plane(0.63, 0.18, "#FFFFFF", { o: 0.15, z: -0.01 }));
+    btn.appendChild(window.UI_HELPERS.createPlane(0.63, 0.18, "#FFFFFF", { o: 0.15, z: -0.01 }));
     const txt = document.createElement("a-entity");
     txt.setAttribute(
       "text",
-      `value: ${cfg.text}; align: center; fontSize: 16; color: #FFFFFF; width: 1.5; anchor: center; ${PANEL_MSDF_FONT}`,
+      `value: ${cfg.text}; align: center; fontSize: 16; color: #FFFFFF; width: 1.5; anchor: center; ${window.UI_HELPERS.MSDF_FONT}`,
     );
     txt.setAttribute("position", "0 0 0.02");
     txt.setAttribute("pointer-events", "none");
@@ -220,34 +219,10 @@ AFRAME.registerComponent("interactive-panels", {
     // Width 0.85 ensures text stays within 85% of panel (0.85 units)
     entity.setAttribute(
       "text",
-      `value: ${text}; align: center; width: ${PANEL_STYLE.contentWidth}; fontSize: ${size}; color: ${color}; wrapCount: 45; anchor: center; ${PANEL_MSDF_FONT}`,
+      `value: ${text}; align: center; width: ${PANEL_STYLE.contentWidth}; fontSize: ${size}; color: ${color}; wrapCount: 45; anchor: center; ${window.UI_HELPERS.MSDF_FONT}`,
     );
     entity.setAttribute("position", `0 ${y} 0.02`);
     container.appendChild(entity);
-  },
-
-  /**
-   * Helper to create a-plane elements with optional positioning.
-   *
-   * @param {number} w - Width in meters
-   * @param {number} h - Height in meters
-   * @param {string} c - Hex color
-   * @param {Object} opts - Options: o (opacity), z (z-offset), y (y-offset)
-   * @returns {Element} Configured a-plane element
-   */
-  _plane: function (w, h, c, opts = {}) {
-    const p = document.createElement("a-plane");
-    p.setAttribute("width", w.toString());
-    p.setAttribute("height", h.toString());
-    p.setAttribute("color", c);
-    p.setAttribute(
-      "material",
-      `transparent: true; opacity: ${opts.o || 1}; side: double`,
-    );
-    if (opts.z !== undefined || opts.y !== undefined) {
-      p.setAttribute("position", `0 ${opts.y || 0} ${opts.z || 0}`);
-    }
-    return p;
   },
 
   /**
@@ -255,7 +230,7 @@ AFRAME.registerComponent("interactive-panels", {
    * Affects both movement-controller and movement-controls on rig.
    */
   lockMovement: function () {
-    console.log("[InteractivePanels] Locking movement");
+    window.debugLog("InteractivePanels", "Locking movement");
     this.isLocked = true;
     const movCtrl = document.querySelector("[movement-controller]");
     if (movCtrl) movCtrl.setAttribute("movement-controller", "enabled: false");
@@ -268,7 +243,7 @@ AFRAME.registerComponent("interactive-panels", {
    * Re-enables player movement by setting enabled:true on movement components.
    */
   unlockMovement: function () {
-    console.log("[InteractivePanels] Unlocking movement");
+    window.debugLog("InteractivePanels", "Unlocking movement");
     this.isLocked = false;
     const movCtrl = document.querySelector("[movement-controller]");
     if (movCtrl) movCtrl.setAttribute("movement-controller", "enabled: true");
