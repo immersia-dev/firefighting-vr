@@ -75,7 +75,8 @@
     </script>
     <a-scene
       renderer="antialias: true; powerPreference: high-performance"
-      background="color: #376c95"
+      background="color: #87CEEB"
+      fog="type: linear; color: #C8D8E8; near: 30; far: 80"
       vr-stats
     >
       <a-assets>
@@ -104,20 +105,26 @@
           src="/assets/models/fire_extinguisher/seal.glb"
         ></a-asset-item>
         <a-asset-item
-          id="model-extintor-hose"
-          src="/assets/models/fire_extinguisher/hose.glb"
+          id="model-extintor-full"
+          src="/assets/models/fire_extinguisher/full.glb"
         ></a-asset-item>
         <!-- Pallet model -->
         <a-asset-item
           id="model-wooden-pallet"
           src="/assets/models/wooden-pallet.glb"
         ></a-asset-item>
+        <!-- Plant model -->
+        <a-asset-item
+          id="model-plant"
+          src="/assets/models/plant.glb"
+        ></a-asset-item>
       </a-assets>
 
       <!-- VR Rig -->
       <a-entity
         id="rig"
-        position="0 0 -7"
+        position="8 0 -18.8"
+        rotation=" 0 90 0"
         movement-controller="mode: analog; enabled: false"
         movement-controls="speed: 0.15"
         simple-navmesh-constraint="navmesh: .navmesh; fall: 0.5; height: 1.6"
@@ -200,85 +207,46 @@
         <!-- Navmesh - defines walkable area -->
         <a-plane
           id="navmesh"
-          position="0 -0.01 0"
+          position="1 0.1 -20.3"
           rotation="-90 0 0"
-          width="50"
-          height="50"
-          color="#2a2a2a"
-          shadow="receive: true"
+          width="17"
+          height="14"
           visible="false"
           class="navmesh"
         ></a-plane>
 
-        <!-- Ground (visual) -->
-        <a-plane
+        <!-- Plant (visual) -->
+        <a-entity
+          id="plant"
+          gltf-model="#model-plant"
+          rotation="0 0 0"
           position="0 0 0"
-          rotation="-90 0 0"
-          width="50"
-          height="50"
-          color="#2a2a2a"
-          shadow="receive: true"
-        ></a-plane>
-
-        <!-- Back wall -->
-        <a-box
-          position="0 5 -25"
-          width="50"
-          height="10"
-          depth="0.5"
-          color="#3a3a3a"
-        ></a-box>
-
-        <!-- Side walls -->
-        <a-box
-          position="-25 5 0"
-          width="0.5"
-          height="10"
-          depth="50"
-          color="#3a3a3a"
-        ></a-box>
-        <a-box
-          position="25 5 0"
-          width="0.5"
-          height="10"
-          depth="50"
-          color="#3a3a3a"
-        ></a-box>
+        >
       </a-entity>
 
       <!-- Extinguisher World Version (visible until grabbed) -->
       <a-entity
         id="extinguisher-world"
-        position="1 1.2 -10"
+        position="7.5 1.0 -12.5"
+        rotation="0 180 0"
+        scale="1.6 1.6 1.6"
+
       >
         <!-- Invisible grab collider (larger than model for easy targeting) -->
         <a-box
           id="extinguisher-collider"
           class="interactable"
           width="0.3"
-          height="0.6"
-          depth="0.3"
-          position="0 0 0"
-          material="transparent: true; opacity: 0"
+          height="0.5"
+          depth="0.1"
+          position="0 0.2 0.03"
+          material="transparent: false; opacity: 0"
         ></a-box>
 
         <!-- Visible models -->
         <a-entity
-          gltf-model="#model-extintor-body"
+          gltf-model="#model-extintor-full"
           position="0 0 0"
-          scale="1 1 1"
-        ></a-entity>
-
-        <a-entity
-          gltf-model="#model-extintor-seal"
-          position="0 0.15 0"
-          scale="1 1 1"
-        ></a-entity>
-
-        <a-entity
-          gltf-model="#model-extintor-hose"
-          position="0 0.05 0.08"
-          scale="1 1 1"
         ></a-entity>
       </a-entity>
 
@@ -291,7 +259,8 @@
       <!-- Burning Box -->
       <a-entity
         id="burning-wooden-pallet"
-        position="0 0.5 -15"
+        position="-3 0.01 -19.5"
+        rotation="0 90 0"
         fire-system="
           fireRate: 100;
           smokeRate: 2;
@@ -321,36 +290,44 @@
 
 
 
-      <!-- Ambient light provides base illumination for the entire scene -->
+      <!-- Ambient light — cool-neutral base so nothing is pitch black -->
       <a-entity
-        light="type: ambient; intensity: 0.5; color: #BBCCFF"
+        light="type: ambient; intensity: 0.6; color: #DCE4F0"
         id="ambient-light"
       ></a-entity>
 
-      <!-- Main directional light simulating sunlight -->
+      <!-- Hemisphere light — sky/ground fill for natural outdoor feel -->
       <a-entity
-        light="type: directional; intensity: 0.8; castShadow: false; shadowCameraVisible: false"
+        light="type: hemisphere; intensity: 0.55; color: #B0D0F0; groundColor: #8A7860"
+        id="hemisphere-light"
+      ></a-entity>
+
+      <!-- Sun — warm directional, angled for good shadows -->
+      <a-entity
+        light="type: directional; intensity: 1.0; color: #FFA857; castShadow: false"
         position="5 10 2"
         rotation="-45 0 0"
         id="sun-light"
       ></a-entity>
 
+      <!-- Back-fill directional — subtle cool opposite to reduce harsh contrast -->
+      <a-entity
+        light="type: directional; intensity: 0.3; color: #A0C0E0"
+        position="-5 8 5"
+        rotation="-30 180 0"
+        id="fill-light"
+      ></a-entity>
+
       <!-- Point lights for environment depth -->
       <a-entity
-        light="type: point; intensity: 0.6; distance: 30; decay: 2; color: #FFFFFF"
+        light="type: point; intensity: 0.5; distance: 30; decay: 2; color: #FFEEDD"
         position="-10 4.8 -15"
         id="point-light-1"
       ></a-entity>
       <a-entity
-        light="type: point; intensity: 0.6; distance: 30; decay: 2; color: #FFFFFF"
+        light="type: point; intensity: 0.5; distance: 30; decay: 2; color: #FFEEDD"
         position="10 4.8 -15"
         id="point-light-2"
-      ></a-entity>
-
-      <!-- Secondary fill light to reduce harsh shadows -->
-      <a-entity
-        light="type: hemisphere; intensity: 0.4; groundColor: #808080"
-        id="hemisphere-light"
       ></a-entity>
 
       <a-sky src="#sky"></a-sky>
