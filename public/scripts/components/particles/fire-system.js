@@ -2,6 +2,7 @@
 // Adapted for A-Frame with ceiling smoke spread
 
 const _VS = `
+precision mediump float;
 uniform float pointMultiplier;
 
 attribute float size;
@@ -20,6 +21,7 @@ void main() {
 }`;
 
 const _FS = `
+precision mediump float;
 uniform sampler2D diffuseTexture;
 
 varying vec4 vColor;
@@ -173,12 +175,18 @@ AFRAME.registerComponent("fire-system", {
       this.systems.push(this.ceilingSystem);
     }
 
-    // Fire light
-    const light = new THREE.PointLight(0xff6600, 2.5, 6, 2);
+    // Fire light — reduced distance and decay for Quest perf
+    const light = new THREE.PointLight(0xff6600, 2.5, 4, 2);
     light.position.set(0, 0.8, 0);
     this.el.sceneEl.object3D.add(light);
     this.fireLight = light;
     this._flickerPhase = Math.random() * 100;
+
+    // Reusable Vector3 objects for _addParticles (avoid GC pressure)
+    this._emitterPos = new THREE.Vector3();
+    this._tmpPosition = new THREE.Vector3();
+    this._tmpVelocity = new THREE.Vector3();
+    this._tmpDrag = new THREE.Vector3();
   },
 
   _createParticleSystem(config) {
@@ -335,19 +343,20 @@ AFRAME.registerComponent("fire-system", {
     const foamComp = foamNozzle.components["foam-system"];
     if (!foamComp.emitting) return;
 
-    const firePos = this.el.object3D.getWorldPosition(new THREE.Vector3());
+    const firePos = this.el.object3D.getWorldPosition(this._emitterPos);
 
     // Check if any foam particles are near the fire
     const foamParticles = foamComp.particles;
     let foamHitCount = 0;
     const hitRadius = 2.5; // Detection radius
+    const hitRadiusSq = hitRadius * hitRadius; // avoid sqrt
 
     for (let i = 0; i < foamParticles.length; i++) {
       const fp = foamParticles[i];
       if (!fp.active) continue;
 
-      const dist = fp.pos.distanceTo(firePos);
-      if (dist < hitRadius) {
+      const dist = fp.pos.distanceToSquared(firePos);
+      if (dist < hitRadiusSq) {
         foamHitCount++;
       }
     }
@@ -397,7 +406,7 @@ AFRAME.registerComponent("fire-system", {
     const n = Math.floor(sys.accumulator * effectiveRate);
     sys.accumulator -= n / effectiveRate;
 
-    const emitterPos = this.el.object3D.getWorldPosition(new THREE.Vector3());
+    const emitterPos = this.el.object3D.getWorldPosition(this._emitterPos);
 
     for (let i = 0; i < n; i++) {
       if (sys.particles.length >= sys.capacity) break; // avoid growth beyond buffers
@@ -422,15 +431,11 @@ AFRAME.registerComponent("fire-system", {
           (Math.random() * 2 - 1) * sys.radius * 0.3,
           (Math.random() * 2 - 1) * sys.radius,
         ).add(emitterPos);
-        vel = sys.velocity
-          .clone()
-          .add(
-            new THREE.Vector3(
-              (Math.random() - 0.5) * 0.5,
-              Math.random() * 0.5,
-              (Math.random() - 0.5) * 0.5,
-            ),
-          );
+        vel = this._tmpVelocity.copy(sys.velocity);
+        vel.x += (Math.random() - 0.5) * 0.5;
+        vel.y += Math.random() * 0.5;
+        vel.z += (Math.random() - 0.5) * 0.5;
+        vel = vel.clone();
       }
 
       sys.particles.push({
@@ -497,8 +502,8 @@ AFRAME.registerComponent("fire-system", {
           p.velocity.y += 0.1 * timeElapsed;
         }
       } else {
-        // Standard drag for fire/smoke
-        const drag = p.velocity.clone();
+        // Standard drag for fire/smoke — reuse _tmpDrag to avoid alloc
+        const drag = this._tmpDrag.copy(p.velocity);
         drag.multiplyScalar(timeElapsed * 0.1);
         drag.x =
           Math.sign(p.velocity.x) *

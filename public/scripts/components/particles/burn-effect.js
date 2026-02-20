@@ -17,13 +17,14 @@ AFRAME.registerComponent("burn-effect", {
   schema: {
     burnRate: { type: "number", default: 0.08 },
     minIntensity: { type: "number", default: 0.2 },
+    maxDarkness: { type: "number", default: 0.7 },
   },
 
   init: function () {
     this.initialColor = new THREE.Color(0x1a0f08);
-    this.burnedColor = new THREE.Color(0x000000);
+    this.burnedColor = new THREE.Color(0x3a2818);
     this.initialEmissive = new THREE.Color(0x0a0503);
-    this.burnedEmissive = new THREE.Color(0x000000);
+    this.burnedEmissive = new THREE.Color(0x120a06);
     this.burnAmount = 0;
   },
 
@@ -38,6 +39,11 @@ AFRAME.registerComponent("burn-effect", {
         this.burnAmount + (timeDelta / 1000) * this.data.burnRate,
       );
     }
+
+    // Throttle material traversal — every 100ms is enough for a slow effect
+    this._accumTime = (this._accumTime || 0) + timeDelta;
+    if (this._accumTime < 100) return;
+    this._accumTime = 0;
 
     var self = this;
     this.el.object3D.traverse(function (node) {
@@ -54,11 +60,13 @@ AFRAME.registerComponent("burn-effect", {
           : self.initialEmissive.clone();
       }
 
+      var darknessAmount = self.burnAmount * self.data.maxDarkness;
+
       if (mat.color) {
-        mat.color.copy(mat.userData.originalColor).lerp(self.burnedColor, self.burnAmount);
+        mat.color.copy(mat.userData.originalColor).lerp(self.burnedColor, darknessAmount);
       }
       if (mat.emissive) {
-        mat.emissive.copy(mat.userData.originalEmissive).lerp(self.burnedEmissive, self.burnAmount);
+        mat.emissive.copy(mat.userData.originalEmissive).lerp(self.burnedEmissive, darknessAmount);
       }
     });
   },

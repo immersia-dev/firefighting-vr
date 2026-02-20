@@ -110,7 +110,12 @@ AFRAME.registerComponent("foam-system", {
     const dt = Math.min(delta / 1000, 0.05); // clamp for tab-away
     if (this.emitting) this._spawn(dt);
     this._simulate(dt);
-    this._updateGeometry();
+    // Throttle geometry update: every other frame on Quest is enough
+    this._geoSkip = (this._geoSkip || 0) + 1;
+    if (this._geoSkip >= 2) {
+      this._geoSkip = 0;
+      this._updateGeometry();
+    }
   },
 
   /* ═══════════════════════════════════════════════════
@@ -122,7 +127,8 @@ AFRAME.registerComponent("foam-system", {
     if (!count) return;
     this._spawnAcc -= count;
 
-    const origin = new THREE.Vector3();
+    const origin = this._spawnOrigin || new THREE.Vector3();
+    this._spawnOrigin = origin;
     this.el.object3D.getWorldPosition(origin);
     this.el.object3D.getWorldQuaternion(this._tmpQuat);
 
@@ -354,6 +360,7 @@ AFRAME.registerComponent("foam-system", {
     return new THREE.ShaderMaterial({
       uniforms,
       vertexShader: `
+        precision mediump float;
         uniform float pointMultiplier;
         attribute float size;
         attribute float alpha;
@@ -369,6 +376,7 @@ AFRAME.registerComponent("foam-system", {
         }
       `,
       fragmentShader: `
+        precision mediump float;
         uniform sampler2D diffuseTexture;
         varying float vAlpha;
         varying float vAngle;
@@ -389,7 +397,7 @@ AFRAME.registerComponent("foam-system", {
           float radialFade = smoothstep(0.5, 0.12, dist);
 
           float a = tex.a * vAlpha * radialFade;
-          if (a < 0.01) discard;
+          // Use alpha multiply instead of discard (discard breaks Adreno early-Z)
 
           // Bright white foam with slight tint from texture
           vec3 color = mix(tex.rgb, vec3(1.0), 0.35);

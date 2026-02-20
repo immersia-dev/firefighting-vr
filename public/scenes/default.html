@@ -37,6 +37,9 @@
     <!-- Interaction Components -->
     <script src="/scripts/components/interaction/extinguisher-controller.js"></script>
 
+    <!-- Quest 3S Optimizer -->
+    <script src="/scripts/components/core/quest-optimizer.js"></script>
+
     <!-- Scene Management -->
     <script src="/scripts/components/core/scene-manager.js"></script>
 
@@ -74,10 +77,22 @@
       });
     </script>
     <a-scene
-      renderer="antialias: true; powerPreference: high-performance"
-      background="color: #87CEEB"
-      fog="type: linear; color: #C8D8E8; near: 30; far: 80"
+      renderer="
+        antialias: true;
+        colorManagement: true;
+        foveationLevel: 1;
+        highRefreshRate: true;
+        multiviewStereo: true;
+        precision: highp;
+        alpha: false;
+        stencil: false;
+        sortTransparentObjects: true;
+        powerPreference: high-performance;
+      "
+      background="color: #000000"
+      fog="type: exponential; color: #b0c8dc; density: 0.012"
       vr-stats
+      quest-optimizer
     >
       <a-assets>
         <a-asset-item
@@ -89,7 +104,7 @@
           src="/assets/fonts/Exo2-Regular.png"
           crossorigin="anonymous"
         />
-        <img id="sky" src="/assets/textures/sky.jpg" />
+        <!-- sky texture removed — procedural sky via quest-optimizer -->
         <img
           id="foam-texture"
           src="/assets/textures/foam.png"
@@ -108,10 +123,24 @@
           id="model-extintor-full"
           src="/assets/models/fire_extinguisher/full.glb"
         ></a-asset-item>
+        <a-asset-item
+          id="model-extintor-full-co2"
+          src="/assets/models/fire_extinguisher/full_c02.glb"
+        ></a-asset-item>
         <!-- Pallet model -->
         <a-asset-item
           id="model-wooden-pallet"
           src="/assets/models/wooden-pallet.glb"
+        ></a-asset-item>
+        <!-- Oil barrels model -->
+        <a-asset-item
+          id="model-oil-barrels"
+          src="/assets/models/oil_barrels.glb"
+        ></a-asset-item>
+        <!-- Table model -->
+        <a-asset-item
+          id="model-table"
+          src="/assets/models/table.glb"
         ></a-asset-item>
         <!-- Plant model -->
         <a-asset-item
@@ -123,8 +152,8 @@
       <!-- VR Rig -->
       <a-entity
         id="rig"
-        position="8 0 -18.8"
-        rotation=" 0 90 0"
+        position="2 0 -24"
+        rotation=" 0 180 0"
         movement-controller="mode: analog; enabled: false"
         movement-controls="speed: 0.15"
         simple-navmesh-constraint="navmesh: .navmesh; fall: 0.5; height: 1.6"
@@ -182,7 +211,7 @@
           <a-entity
             id="foam-nozzle"
             position="0.015 -0.065 -0.095"
-            foam-system="autoStart: false; texture: #foam-texture; rate: 300; speed: 8; coneAngle: 6; sizeStart: 0.1; sizeEnd: 0.8; maxParticles: 1500; life: 2.5; gravity: -4; drag: 1.2; opacity: 0.65; floorY: 0; groundSpread: 2; groundDrag: 6; groundBounce: 0.03; groundSizeScale: 1.5; turbulence: 0.8; spreadGrowth: 1.5"
+            foam-system="autoStart: false; texture: #foam-texture; rate: 180; speed: 8; coneAngle: 6; sizeStart: 0.1; sizeEnd: 0.8; maxParticles: 800; life: 2.0; gravity: -4; drag: 1.2; opacity: 0.65; floorY: 0; groundSpread: 2; groundDrag: 6; groundBounce: 0.03; groundSizeScale: 1.5; turbulence: 0.8; spreadGrowth: 1.5"
           ></a-entity>
         </a-entity>
 
@@ -227,8 +256,8 @@
       <!-- Extinguisher World Version (visible until grabbed) -->
       <a-entity
         id="extinguisher-world"
-        position="7.5 1.0 -12.5"
-        rotation="0 180 0"
+        position="6 0.85 -21"
+        rotation="0 -90 0"
         scale="1.6 1.6 1.6"
 
       >
@@ -250,6 +279,32 @@
         ></a-entity>
       </a-entity>
 
+      <!-- Extinguisher World Version (visible until grabbed) -->
+      <a-entity
+        id="extinguisher-world-co2"
+        position="6 0.85 -21.5"
+        rotation="0 -90 0"
+        scale="1.6 1.6 1.6"
+
+      >
+        <!-- Invisible grab collider (larger than model for easy targeting) -->
+        <a-box
+          id="extinguisher-collider-co2"
+          class="interactable"
+          width="0.3"
+          height="0.5"
+          depth="0.1"
+          position="0 0.2 0.03"
+          material="transparent: false; opacity: 0"
+        ></a-box>
+
+        <!-- Visible models -->
+        <a-entity
+          gltf-model="#model-extintor-full-co2"
+          position="0 0 0"
+        ></a-entity>
+      </a-entity>
+
       <!-- Extinguisher Controller (scene-level orchestrator) -->
       <a-entity
         id="extinguisher-controller"
@@ -259,22 +314,22 @@
       <!-- Burning Box -->
       <a-entity
         id="burning-wooden-pallet"
-        position="-3 0.01 -19.5"
-        rotation="0 90 0"
+        position="2 0.01 -18"
+        rotation="0 180 0"
         fire-system="
-          fireRate: 100;
+          fireRate: 60;
           smokeRate: 2;
-          ceilingSmokeRate: 35;
+          ceilingSmokeRate: 20;
           fireTexture: /assets/textures/fire.png;
           smokeTexture: /assets/textures/smoke.png;
           radius: 0.5;
           maxLife: 1.8;
-          maxSize: 4.5;
-          smokeMaxLife: 3.5;
-          smokeMaxSize: 5.5;
+          maxSize: 4.0;
+          smokeMaxLife: 3.0;
+          smokeMaxSize: 4.0;
           ceilingHeight: 5.5;
-          ceilingWidth: 18;
-          ceilingDepth: 15;
+          ceilingWidth: 14;
+          ceilingDepth: 12;
           enableCeiling: true
         "
       >
@@ -286,51 +341,72 @@
         ></a-entity>
       </a-entity>
 
+      <a-entity
+        id="oil-barrels"
+        gltf-model="#model-oil-barrels"
+        position="-3.2 0.075 -18"
+        rotation="0 -90 0"
+        scale="0.2 0.2 0.2"
+      ></a-entity>
+
+        <a-entity
+          id="table"
+          gltf-model="#model-table"
+          position="6 0 -22"
+          rotation="0 90 0"
+        ></a-entity>
+
       <!-- burn-effect component loaded from /scripts/components/particles/burn-effect.js -->
 
 
 
-      <!-- Ambient light — cool-neutral base so nothing is pitch black -->
+      <!-- ═══ Lighting — optimized for Quest 3S standalone ═══ -->
+
+      <!-- Ambient light — low-cost base fill -->
       <a-entity
-        light="type: ambient; intensity: 0.6; color: #DCE4F0"
+        light="type: ambient; intensity: 0.45; color: #DCE4F0"
         id="ambient-light"
       ></a-entity>
 
-      <!-- Hemisphere light — sky/ground fill for natural outdoor feel -->
+      <!-- Hemisphere light — sky/ground fill for natural outdoor feel (cheap) -->
       <a-entity
-        light="type: hemisphere; intensity: 0.55; color: #B0D0F0; groundColor: #8A7860"
+        light="type: hemisphere; intensity: 0.5; color: #87CEEB; groundColor: #8B7355"
         id="hemisphere-light"
       ></a-entity>
 
-      <!-- Sun — warm directional, angled for good shadows -->
+      <!-- Sun — single directional, tight shadow frustum, small map -->
       <a-entity
-        light="type: directional; intensity: 1.0; color: #FFA857; castShadow: false"
-        position="5 10 2"
-        rotation="-45 0 0"
+        light="type: directional; intensity: 1.2; color: #FFF4E0;
+               castShadow: true;
+               shadowMapWidth: 512; shadowMapHeight: 512;
+               shadowCameraNear: 0.5; shadowCameraFar: 50;
+               shadowCameraLeft: -15; shadowCameraRight: 15;
+               shadowCameraTop: 15; shadowCameraBottom: -15;
+               shadowBias: -0.001"
+        position="8 12 4"
         id="sun-light"
       ></a-entity>
 
-      <!-- Back-fill directional — subtle cool opposite to reduce harsh contrast -->
+      <!-- Back-fill — subtle cool opposite (no shadow) -->
       <a-entity
-        light="type: directional; intensity: 0.3; color: #A0C0E0"
+        light="type: directional; intensity: 0.25; color: #A0C0E0; castShadow: false"
         position="-5 8 5"
-        rotation="-30 180 0"
         id="fill-light"
       ></a-entity>
 
-      <!-- Point lights for environment depth -->
+      <!-- Interior fill lights for plant (local only, no shadows) -->
       <a-entity
-        light="type: point; intensity: 0.5; distance: 30; decay: 2; color: #FFEEDD"
-        position="-10 4.8 -15"
-        id="point-light-1"
+        id="plant-fill-light-1"
+        light="type: point; intensity: 0.5; distance: 12; decay: 2; color: #FFFFFF; castShadow: false"
+        position="0 3 -20"
       ></a-entity>
       <a-entity
-        light="type: point; intensity: 0.5; distance: 30; decay: 2; color: #FFEEDD"
-        position="10 4.8 -15"
-        id="point-light-2"
+        id="plant-fill-light-2"
+        light="type: point; intensity: 0.35; distance: 10; decay: 2; color: #DDEBFF; castShadow: false"
+        position="-4 2.5 -21"
       ></a-entity>
 
-      <a-sky src="#sky"></a-sky>
+      <!-- Procedural sky via quest-optimizer component (replaces <a-sky>) -->
     </a-scene>
   </body>
 </html>
