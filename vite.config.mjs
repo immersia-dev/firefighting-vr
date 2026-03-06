@@ -6,5 +6,12 @@ export default defineConfig({
   server: {
     https: true,
     host: true,
+    proxy: {
+      "/api/vision": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 });

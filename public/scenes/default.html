@@ -37,6 +37,9 @@
     <!-- Interaction Components -->
     <script src="/scripts/components/interaction/extinguisher-controller.js"></script>
 
+    <!-- AI Vision Assistant -->
+    <script src="/scripts/components/ui/vision-assistant.js"></script>
+
     <!-- Quest 3S Optimizer -->
     <script src="/scripts/components/core/quest-optimizer.js"></script>
 
@@ -404,6 +407,18 @@
         id="plant-fill-light-2"
         light="type: point; intensity: 0.35; distance: 10; decay: 2; color: #DDEBFF; castShadow: false"
         position="-4 2.5 -21"
+      ></a-entity>
+
+      <!-- AI Vision Assistant Panel -->
+      <a-entity
+        id="va-panel"
+        vision-assistant="
+          backendUrl: /api/vision;
+          defaultPrompt: Analyze this fire scene. What class is the fire? Which extinguisher should I use?;
+          tts: true
+        "
+        position="-2.516 1.923 -22.495"
+        rotation="0 90 0"
       ></a-entity>
 
       <!-- Procedural sky via quest-optimizer component (replaces <a-sky>) -->

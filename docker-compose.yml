@@ -1,0 +1,47 @@
+services:
+  # ---- Ollama (LLM with GPU) ----
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # ---- Vision Assistant Backend (Express → Ollama) ----
+  backend:
+    build: ../vr-assistant
+    container_name: vr-backend
+    expose:
+      - "3000"
+    environment:
+      - PORT=3000
+      - OLLAMA_URL=http://ollama:11434/api/generate
+      - OLLAMA_MODEL=moondream
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # ---- Firefighting VR App (Nginx + HTTPS) ----
+  app:
+    build: .
+    container_name: firefighting-vr
+    ports:
+      - "443:443"
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
